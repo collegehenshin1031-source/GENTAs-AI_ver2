@@ -465,25 +465,90 @@ with tab1:
     
     st.divider()
     
-    # スキャン実行
-    st.markdown("### 🔍 銘柄スキャン")
+    # スキャン設定セクション
+    st.markdown("### 🔍 スキャン設定")
     
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        scan_codes = st.text_input(
-            "スキャン対象（空欄で全銘柄サンプル）",
-            placeholder="例: 7203 9984 6758（スペース区切り）",
-            help="特定の銘柄だけをスキャンしたい場合に入力"
+    # スキャンモード選択（プルダウン）
+    scan_mode_options = {
+        "⚡ クイックスキャン（推奨）": scanner.ScanMode.QUICK,
+        "🌱 グロース市場（約500銘柄）": scanner.ScanMode.GROWTH,
+        "🏬 スタンダード市場（約1,400銘柄）": scanner.ScanMode.STANDARD,
+        "🏢 プライム市場（約1,800銘柄）": scanner.ScanMode.PRIME,
+        "🌐 全銘柄スキャン（約3,800銘柄）": scanner.ScanMode.ALL,
+        "✏️ 銘柄コードを直接入力": scanner.ScanMode.CUSTOM,
+    }
+    
+    selected_mode_label = st.selectbox(
+        "スキャン対象を選択",
+        options=list(scan_mode_options.keys()),
+        index=0,
+        help="クイックスキャンは出来高が急増している銘柄を優先的にスキャンします"
+    )
+    
+    selected_mode = scan_mode_options[selected_mode_label]
+    scan_option = scanner.SCAN_OPTIONS[selected_mode]
+    
+    # 選択したモードの説明を表示
+    info_col1, info_col2 = st.columns([2, 1])
+    with info_col1:
+        st.markdown(f"""
+        <div style="background: #F8F9FA; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.9rem;">
+            📋 <strong>{scan_option.description}</strong><br>
+            <span style="color: #666;">対象: 約{scan_option.estimated_count}銘柄 / 所要時間: {scan_option.estimated_time}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # 警告表示
+    if scan_option.warning:
+        st.warning(scan_option.warning)
+    
+    # カスタム入力（モードがCUSTOMの場合のみ表示）
+    custom_codes = []
+    if selected_mode == scanner.ScanMode.CUSTOM:
+        custom_input = st.text_input(
+            "銘柄コードを入力（スペース区切り）",
+            placeholder="例: 7203 9984 6758 8306",
+            help="スキャンしたい銘柄コードをスペースで区切って入力してください"
         )
-    with col2:
+        if custom_input:
+            custom_codes = [c.strip() for c in custom_input.split() if c.strip()]
+            st.info(f"📝 {len(custom_codes)}銘柄を入力済み")
+    
+    # スキャン実行ボタン
+    st.markdown("")  # スペーサー
+    
+    # 全銘柄スキャンの場合は確認ダイアログ
+    if selected_mode == scanner.ScanMode.ALL:
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            confirm_all = st.checkbox("⚠️ 長時間かかることを理解しました", key="confirm_all_scan")
+        with col2:
+            scan_btn = st.button(
+                "🚀 全銘柄スキャン開始", 
+                type="primary", 
+                disabled=not confirm_all,
+                use_container_width=True
+            )
+    else:
         scan_btn = st.button("🚀 スキャン開始", type="primary", use_container_width=True)
     
+    # スキャン実行
     if scan_btn:
-        # 対象銘柄を決定
-        if scan_codes.strip():
-            codes = [c.strip() for c in scan_codes.split() if c.strip()]
+        # 対象銘柄を取得
+        if selected_mode == scanner.ScanMode.CUSTOM:
+            if not custom_codes:
+                st.error("銘柄コードを入力してください")
+                st.stop()
+            codes = custom_codes
         else:
-            codes = scanner.get_all_japan_stocks()[:30]  # サンプルとして30銘柄
+            with st.spinner("📋 銘柄リストを取得中..."):
+                codes = scanner.get_scan_targets(selected_mode, custom_codes)
+        
+        if not codes:
+            st.error("スキャン対象の銘柄が見つかりませんでした")
+            st.stop()
+        
+        st.info(f"🎯 {len(codes)}銘柄をスキャンします")
         
         # プログレスバー
         progress_bar = st.progress(0)
@@ -501,12 +566,21 @@ with tab1:
         progress_bar.empty()
         status_text.empty()
         
+        # 結果サマリー
+        lockons = [s for s in results if s.total_score >= 70]
+        high_alerts = [s for s in results if 50 <= s.total_score < 70]
+        
+        st.success(f"""
+        ✅ スキャン完了！
+        - 🔴 ロックオン: {len(lockons)}件
+        - 🟠 高警戒: {len(high_alerts)}件
+        - 📊 スキャン銘柄数: {len(results)}件
+        """)
+        
         # 通知チェック
         config = st.session_state.get("notification_config", notifier.NotificationConfig())
-        if config.enabled and config.email_enabled:
-            lockons = [s for s in results if s.total_score >= config.min_score_threshold]
-            if lockons:
-                st.success(f"🎯 {len(lockons)}件のロックオン銘柄を検知！")
+        if config.enabled and config.email_enabled and lockons:
+            st.info(f"📧 {len(lockons)}件のロックオン銘柄を検知しました！")
         
         st.rerun()
     
