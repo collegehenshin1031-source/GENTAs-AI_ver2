@@ -27,6 +27,16 @@ st.set_page_config(page_title="源太ＡＩ🤖ハゲタカＳＣＯＰＥ", pag
 hide_streamlit_style = """
             <style>
             /* ==========================================
+               🎨 先乗り株カレッジ ブランドカラー定義
+               - Primary Red: #C41E3A (深い赤)
+               - Accent Gold: #FFD700 (ゴールド)
+               - Light Red: #E85A71 (明るい赤)
+               - Background: #FAFAFA (オフホワイト)
+               - Card: #FFFFFF (白)
+               - Text: #2D3748 (ダークグレー)
+            ========================================== */
+            
+            /* ==========================================
                基本設定・Streamlit要素非表示
             ========================================== */
             #MainMenu {visibility: hidden;}
@@ -35,116 +45,189 @@ hide_streamlit_style = """
             .stDeployButton {display:none;}
             
             /* ==========================================
-               メインコンテナ - 中央揃え・最大幅設定
+               全体背景 - オフホワイト + 赤のアクセント
+            ========================================== */
+            div[data-testid="stAppViewContainer"] {
+                background: linear-gradient(135deg, #FAFAFA 0%, #FFF5F5 100%) !important;
+            }
+            
+            .stApp {
+                background: transparent !important;
+            }
+            
+            /* ==========================================
+               メインコンテナ - 中央揃え
             ========================================== */
             .main .block-container {
-                max-width: 1200px !important;
-                padding-left: 2rem !important;
-                padding-right: 2rem !important;
-                padding-top: 2rem !important;
+                max-width: 1100px !important;
+                padding: 1.5rem 2rem 3rem 2rem !important;
                 margin: 0 auto !important;
             }
             
             /* ==========================================
-               タイトル・ヘッダー
+               ヘッダー・タイトル
             ========================================== */
             h1 {
                 text-align: center !important;
-                font-size: 2.2rem !important;
-                margin-bottom: 1.5rem !important;
-                padding-bottom: 1rem !important;
-                border-bottom: 3px solid #ff4b4b !important;
+                font-size: 1.8rem !important;
+                font-weight: 700 !important;
+                color: #C41E3A !important;
+                margin-bottom: 0.5rem !important;
+                padding: 1rem 0 !important;
+                background: linear-gradient(135deg, #C41E3A 0%, #E85A71 100%) !important;
+                -webkit-background-clip: text !important;
+                -webkit-text-fill-color: transparent !important;
+                background-clip: text !important;
             }
             
-            h2, .stSubheader {
+            h2, h3 {
+                color: #2D3748 !important;
+                font-weight: 600 !important;
+            }
+            
+            /* サブヘッダー */
+            .stSubheader, [data-testid="stSubheader"] {
                 text-align: center !important;
-                font-size: 1.5rem !important;
-                margin-top: 1.5rem !important;
+                color: #C41E3A !important;
+                font-size: 1.3rem !important;
+                font-weight: 600 !important;
+                padding-bottom: 0.5rem !important;
+                border-bottom: 2px solid #FFD700 !important;
+                margin-bottom: 1rem !important;
             }
             
             /* ==========================================
-               タブスタイル
+               タブスタイル - 先乗り株カレッジ風
             ========================================== */
             .stTabs [data-baseweb="tab-list"] {
                 justify-content: center !important;
-                gap: 8px !important;
-                background-color: #f8f9fa !important;
-                padding: 0.5rem !important;
-                border-radius: 12px !important;
+                gap: 0 !important;
+                background-color: #FFF !important;
+                padding: 0.4rem !important;
+                border-radius: 16px !important;
+                box-shadow: 0 2px 12px rgba(196, 30, 58, 0.1) !important;
                 margin-bottom: 1.5rem !important;
+                border: 1px solid #F0E0E0 !important;
             }
             
             .stTabs [data-baseweb="tab"] {
-                padding: 0.75rem 1.5rem !important;
-                border-radius: 8px !important;
+                padding: 0.7rem 1.8rem !important;
+                border-radius: 12px !important;
                 font-weight: 600 !important;
-                transition: all 0.2s ease !important;
+                font-size: 0.95rem !important;
+                color: #666 !important;
+                background: transparent !important;
+                border: none !important;
+                transition: all 0.3s ease !important;
+            }
+            
+            .stTabs [data-baseweb="tab"]:hover {
+                color: #C41E3A !important;
+                background: #FFF5F5 !important;
             }
             
             .stTabs [aria-selected="true"] {
-                background-color: #ff4b4b !important;
+                background: linear-gradient(135deg, #C41E3A 0%, #E85A71 100%) !important;
                 color: white !important;
+                box-shadow: 0 4px 12px rgba(196, 30, 58, 0.3) !important;
+            }
+            
+            /* タブ下線を非表示 */
+            .stTabs [data-baseweb="tab-highlight"] {
+                display: none !important;
+            }
+            
+            .stTabs [data-baseweb="tab-border"] {
+                display: none !important;
             }
             
             /* ==========================================
-               ボタンスタイル
+               ボタンスタイル - ゴールドアクセント
             ========================================== */
             div.stButton {
                 text-align: center !important;
             }
             
             div.stButton > button:first-child {
-                background: linear-gradient(135deg, #ff4b4b 0%, #ff6b6b 100%) !important;
+                background: linear-gradient(135deg, #C41E3A 0%, #E85A71 100%) !important;
                 color: white !important;
-                font-weight: bold !important;
+                font-weight: 700 !important;
                 border-radius: 12px !important;
                 border: none !important;
-                padding: 0.8rem 2.5rem !important;
-                box-shadow: 0 4px 15px rgba(255, 75, 75, 0.3) !important;
+                padding: 0.85rem 2.5rem !important;
+                box-shadow: 0 4px 15px rgba(196, 30, 58, 0.25) !important;
                 transition: all 0.3s ease !important;
                 font-size: 1rem !important;
+                letter-spacing: 0.5px !important;
             }
             
             div.stButton > button:hover {
-                transform: translateY(-2px) !important;
-                box-shadow: 0 6px 20px rgba(255, 75, 75, 0.4) !important;
+                transform: translateY(-3px) !important;
+                box-shadow: 0 8px 25px rgba(196, 30, 58, 0.35) !important;
+                background: linear-gradient(135deg, #A01830 0%, #C41E3A 100%) !important;
+            }
+            
+            /* セカンダリボタン */
+            div.stButton > button[kind="secondary"] {
+                background: #FFF !important;
+                color: #C41E3A !important;
+                border: 2px solid #C41E3A !important;
             }
             
             /* ==========================================
-               カード風コンテナ
+               カード風Expander - マネーフォワード風
             ========================================== */
             .stExpander {
-                background-color: #ffffff !important;
-                border: 1px solid #e0e0e0 !important;
-                border-radius: 12px !important;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
+                background-color: #FFFFFF !important;
+                border: none !important;
+                border-radius: 16px !important;
+                box-shadow: 0 2px 12px rgba(0,0,0,0.06) !important;
                 margin-bottom: 1rem !important;
+                overflow: hidden !important;
+            }
+            
+            .stExpander > details {
+                border: none !important;
             }
             
             .stExpander > details > summary {
-                padding: 1rem !important;
+                padding: 1rem 1.25rem !important;
                 font-weight: 600 !important;
-                color: #31333F !important;
+                color: #2D3748 !important;
+                background: #FFFFFF !important;
+                border-radius: 16px !important;
+                transition: all 0.2s ease !important;
+            }
+            
+            .stExpander > details > summary:hover {
+                background: #FFF8F8 !important;
+            }
+            
+            .stExpander > details[open] > summary {
+                border-bottom: 1px solid #F0E0E0 !important;
+                border-radius: 16px 16px 0 0 !important;
             }
             
             /* ==========================================
                入力フォーム
             ========================================== */
             .stTextArea textarea, .stTextInput input {
-                border-radius: 10px !important;
-                border: 2px solid #e0e0e0 !important;
-                padding: 0.75rem !important;
+                background: #FFFFFF !important;
+                border-radius: 12px !important;
+                border: 2px solid #E8E8E8 !important;
+                padding: 0.85rem 1rem !important;
                 font-size: 1rem !important;
-                transition: border-color 0.2s ease !important;
+                color: #2D3748 !important;
+                transition: all 0.2s ease !important;
             }
             
             .stTextArea textarea:focus, .stTextInput input:focus {
-                border-color: #ff4b4b !important;
-                box-shadow: 0 0 0 3px rgba(255, 75, 75, 0.1) !important;
+                border-color: #C41E3A !important;
+                box-shadow: 0 0 0 4px rgba(196, 30, 58, 0.1) !important;
             }
             
             ::placeholder {
-                color: #888888 !important;
+                color: #A0A0A0 !important;
                 opacity: 1;
             }
             
@@ -152,80 +235,95 @@ hide_streamlit_style = """
                データテーブル
             ========================================== */
             .stDataFrame {
-                border-radius: 12px !important;
+                background: #FFFFFF !important;
+                border-radius: 16px !important;
                 overflow: hidden !important;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.08) !important;
+                box-shadow: 0 2px 12px rgba(0,0,0,0.06) !important;
+                border: 1px solid #F0E0E0 !important;
+            }
+            
+            .stDataFrame [data-testid="stDataFrameResizable"] {
+                border-radius: 16px !important;
             }
             
             /* ==========================================
-               インフォボックス
+               インフォボックス - ゴールドアクセント
             ========================================== */
             .stAlert {
-                border-radius: 10px !important;
-                padding: 1rem !important;
+                border-radius: 12px !important;
+                border: none !important;
+            }
+            
+            /* info */
+            div[data-testid="stAlert"][data-baseweb="notification"] {
+                background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%) !important;
+                border-left: 4px solid #FFD700 !important;
             }
             
             /* ==========================================
-               メトリクス（数値表示）
+               メトリクス - カード風
             ========================================== */
+            [data-testid="stMetric"] {
+                background: #FFFFFF !important;
+                padding: 1rem !important;
+                border-radius: 12px !important;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
+            }
+            
             [data-testid="stMetricValue"] {
-                font-size: 1.5rem !important;
+                font-size: 1.6rem !important;
                 font-weight: 700 !important;
+                color: #C41E3A !important;
                 text-align: center !important;
             }
             
             [data-testid="stMetricLabel"] {
                 text-align: center !important;
+                color: #666 !important;
+                font-weight: 500 !important;
             }
             
             /* ==========================================
-               M&Aスコア用カード
+               M&Aスコアカード - グラデーション
             ========================================== */
             .ma-critical { 
-                background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
-                border-left: 5px solid #ef4444; 
-                padding: 1rem 1.25rem; 
+                background: linear-gradient(135deg, #FEE2E2 0%, #FECACA 100%);
+                border-left: 5px solid #C41E3A; 
+                padding: 1.25rem; 
                 margin: 0.75rem 0; 
-                border-radius: 10px;
-                box-shadow: 0 2px 8px rgba(239, 68, 68, 0.15);
+                border-radius: 14px;
+                box-shadow: 0 3px 12px rgba(196, 30, 58, 0.12);
             }
             .ma-high { 
-                background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
-                border-left: 5px solid #f97316; 
-                padding: 1rem 1.25rem; 
+                background: linear-gradient(135deg, #FFEDD5 0%, #FED7AA 100%);
+                border-left: 5px solid #F97316; 
+                padding: 1.25rem; 
                 margin: 0.75rem 0; 
-                border-radius: 10px;
-                box-shadow: 0 2px 8px rgba(249, 115, 22, 0.15);
+                border-radius: 14px;
+                box-shadow: 0 3px 12px rgba(249, 115, 22, 0.12);
             }
             .ma-medium { 
-                background: linear-gradient(135deg, #fef9c3 0%, #fef08a 100%);
-                border-left: 5px solid #eab308; 
-                padding: 1rem 1.25rem; 
+                background: linear-gradient(135deg, #FEF9C3 0%, #FEF08A 100%);
+                border-left: 5px solid #FFD700; 
+                padding: 1.25rem; 
                 margin: 0.75rem 0; 
-                border-radius: 10px;
-                box-shadow: 0 2px 8px rgba(234, 179, 8, 0.15);
+                border-radius: 14px;
+                box-shadow: 0 3px 12px rgba(255, 215, 0, 0.15);
             }
             .ma-low { 
-                background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
-                border-left: 5px solid #22c55e; 
-                padding: 1rem 1.25rem; 
+                background: linear-gradient(135deg, #DCFCE7 0%, #BBF7D0 100%);
+                border-left: 5px solid #22C55E; 
+                padding: 1.25rem; 
                 margin: 0.75rem 0; 
-                border-radius: 10px;
-                box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15);
+                border-radius: 14px;
+                box-shadow: 0 3px 12px rgba(34, 197, 94, 0.12);
             }
             
             /* ==========================================
-               文字色・背景色の強制設定
+               トグル・チェックボックス
             ========================================== */
-            .stApp, .stMarkdown, .stMarkdown p, .stMarkdown li, 
-            .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, 
-            .stMarkdown span, .stMarkdown div, .stDataFrame {
-                color: #31333F !important;
-                background-color: #ffffff !important;
-            }
-            
-            div[data-testid="stAppViewContainer"] {
-                background-color: #f8f9fa !important;
+            .stCheckbox label span {
+                color: #2D3748 !important;
             }
             
             /* ==========================================
@@ -235,79 +333,116 @@ hide_streamlit_style = """
                 margin: 2rem 0 !important;
                 border: none !important;
                 height: 1px !important;
-                background: linear-gradient(to right, transparent, #e0e0e0, transparent) !important;
+                background: linear-gradient(to right, transparent, #E0D0D0, transparent) !important;
             }
             
             /* ==========================================
-               レスポンシブデザイン - タブレット
+               マークダウンテキスト
+            ========================================== */
+            .stMarkdown, .stMarkdown p, .stMarkdown li, 
+            .stMarkdown span, .stMarkdown div {
+                color: #2D3748 !important;
+            }
+            
+            .stMarkdown a {
+                color: #C41E3A !important;
+                text-decoration: none !important;
+            }
+            
+            .stMarkdown a:hover {
+                text-decoration: underline !important;
+            }
+            
+            /* テーブル内のスタイル */
+            .stMarkdown table {
+                border-collapse: collapse !important;
+                width: 100% !important;
+                margin: 1rem 0 !important;
+            }
+            
+            .stMarkdown th {
+                background: #C41E3A !important;
+                color: white !important;
+                padding: 0.75rem !important;
+            }
+            
+            .stMarkdown td {
+                padding: 0.75rem !important;
+                border-bottom: 1px solid #E8E8E8 !important;
+            }
+            
+            /* ==========================================
+               スライダー
+            ========================================== */
+            .stSlider [data-baseweb="slider"] [data-testid="stThumbValue"] {
+                color: #C41E3A !important;
+            }
+            
+            /* ==========================================
+               レスポンシブ - タブレット
             ========================================== */
             @media (max-width: 992px) {
                 .main .block-container {
-                    padding-left: 1.5rem !important;
-                    padding-right: 1.5rem !important;
+                    padding: 1rem 1.5rem 2rem 1.5rem !important;
                 }
                 
                 h1 {
-                    font-size: 1.8rem !important;
+                    font-size: 1.6rem !important;
                 }
                 
                 .stTabs [data-baseweb="tab"] {
-                    padding: 0.6rem 1rem !important;
+                    padding: 0.6rem 1.2rem !important;
                     font-size: 0.9rem !important;
                 }
             }
             
             /* ==========================================
-               レスポンシブデザイン - スマートフォン
+               レスポンシブ - スマートフォン
             ========================================== */
             @media (max-width: 768px) {
                 .main .block-container {
-                    padding-left: 1rem !important;
-                    padding-right: 1rem !important;
-                    padding-top: 1rem !important;
+                    padding: 0.75rem 1rem 2rem 1rem !important;
                 }
                 
                 h1 {
-                    font-size: 1.5rem !important;
-                    padding-bottom: 0.75rem !important;
+                    font-size: 1.4rem !important;
+                    padding: 0.75rem 0 !important;
                 }
                 
-                h2, .stSubheader {
-                    font-size: 1.2rem !important;
-                }
-                
-                /* タブを横スクロール可能に */
+                /* タブ横スクロール */
                 .stTabs [data-baseweb="tab-list"] {
                     flex-wrap: nowrap !important;
                     overflow-x: auto !important;
                     -webkit-overflow-scrolling: touch !important;
-                    padding: 0.5rem !important;
-                    gap: 4px !important;
+                    padding: 0.3rem !important;
+                    gap: 0 !important;
+                    justify-content: flex-start !important;
                 }
                 
                 .stTabs [data-baseweb="tab"] {
-                    padding: 0.5rem 0.75rem !important;
+                    padding: 0.55rem 1rem !important;
                     font-size: 0.85rem !important;
                     white-space: nowrap !important;
+                    flex-shrink: 0 !important;
                 }
                 
-                /* ボタン */
+                /* ボタン全幅 */
                 div.stButton > button:first-child {
                     width: 100% !important;
-                    padding: 0.75rem 1.5rem !important;
+                    padding: 0.8rem 1.5rem !important;
                 }
                 
-                /* テキストエリア */
-                .stTextArea textarea {
-                    font-size: 16px !important; /* iOS zoomを防ぐ */
+                /* テキストエリア - iOS zoom防止 */
+                .stTextArea textarea, .stTextInput input {
+                    font-size: 16px !important;
                 }
                 
                 /* メトリクス */
                 [data-testid="stMetricValue"] {
-                    font-size: 1.2rem !important;
+                    font-size: 1.3rem !important;
                 }
                 
-                /* カラム - スマホでは縦並び */
+                /* カラム縦並び */
                 [data-testid="column"] {
                     width: 100% !important;
                     flex: 1 1 100% !important;
@@ -315,19 +450,24 @@ hide_streamlit_style = """
                 
                 /* M&Aカード */
                 .ma-critical, .ma-high, .ma-medium, .ma-low {
-                    padding: 0.75rem 1rem;
+                    padding: 1rem;
                     font-size: 0.9rem;
+                    border-radius: 12px;
                 }
                 
                 /* Expander */
+                .stExpander {
+                    border-radius: 12px !important;
+                }
+                
                 .stExpander > details > summary {
-                    padding: 0.75rem !important;
+                    padding: 0.85rem 1rem !important;
                     font-size: 0.95rem !important;
                 }
                 
                 /* データテーブル横スクロール */
                 .stDataFrame {
-                    overflow-x: auto !important;
+                    border-radius: 12px !important;
                 }
             }
             
@@ -336,12 +476,16 @@ hide_streamlit_style = """
             ========================================== */
             @media (max-width: 480px) {
                 h1 {
-                    font-size: 1.3rem !important;
+                    font-size: 1.25rem !important;
                 }
                 
                 .stTabs [data-baseweb="tab"] {
-                    padding: 0.4rem 0.6rem !important;
+                    padding: 0.5rem 0.8rem !important;
                     font-size: 0.8rem !important;
+                }
+                
+                div.stButton > button:first-child {
+                    font-size: 0.95rem !important;
                 }
             }
             </style>
