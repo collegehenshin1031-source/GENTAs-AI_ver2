@@ -26,68 +26,324 @@ st.set_page_config(page_title="源太ＡＩ🤖ハゲタカＳＣＯＰＥ", pag
 
 hide_streamlit_style = """
             <style>
+            /* ==========================================
+               基本設定・Streamlit要素非表示
+            ========================================== */
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
             .stDeployButton {display:none;}
             
+            /* ==========================================
+               メインコンテナ - 中央揃え・最大幅設定
+            ========================================== */
+            .main .block-container {
+                max-width: 1200px !important;
+                padding-left: 2rem !important;
+                padding-right: 2rem !important;
+                padding-top: 2rem !important;
+                margin: 0 auto !important;
+            }
+            
+            /* ==========================================
+               タイトル・ヘッダー
+            ========================================== */
+            h1 {
+                text-align: center !important;
+                font-size: 2.2rem !important;
+                margin-bottom: 1.5rem !important;
+                padding-bottom: 1rem !important;
+                border-bottom: 3px solid #ff4b4b !important;
+            }
+            
+            h2, .stSubheader {
+                text-align: center !important;
+                font-size: 1.5rem !important;
+                margin-top: 1.5rem !important;
+            }
+            
+            /* ==========================================
+               タブスタイル
+            ========================================== */
+            .stTabs [data-baseweb="tab-list"] {
+                justify-content: center !important;
+                gap: 8px !important;
+                background-color: #f8f9fa !important;
+                padding: 0.5rem !important;
+                border-radius: 12px !important;
+                margin-bottom: 1.5rem !important;
+            }
+            
+            .stTabs [data-baseweb="tab"] {
+                padding: 0.75rem 1.5rem !important;
+                border-radius: 8px !important;
+                font-weight: 600 !important;
+                transition: all 0.2s ease !important;
+            }
+            
+            .stTabs [aria-selected="true"] {
+                background-color: #ff4b4b !important;
+                color: white !important;
+            }
+            
+            /* ==========================================
+               ボタンスタイル
+            ========================================== */
+            div.stButton {
+                text-align: center !important;
+            }
+            
             div.stButton > button:first-child {
-                background-color: #ff4b4b;
-                color: white;
-                font-weight: bold;
-                border-radius: 12px;
-                border: none;
-                padding: 0.8rem 2rem;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                background: linear-gradient(135deg, #ff4b4b 0%, #ff6b6b 100%) !important;
+                color: white !important;
+                font-weight: bold !important;
+                border-radius: 12px !important;
+                border: none !important;
+                padding: 0.8rem 2.5rem !important;
+                box-shadow: 0 4px 15px rgba(255, 75, 75, 0.3) !important;
+                transition: all 0.3s ease !important;
+                font-size: 1rem !important;
             }
+            
             div.stButton > button:hover {
-                background-color: #e63e3e;
+                transform: translateY(-2px) !important;
+                box-shadow: 0 6px 20px rgba(255, 75, 75, 0.4) !important;
             }
             
-            details {
-                background-color: #f9f9f9;
-                padding: 10px;
-                border-radius: 5px;
-                border: 1px solid #eee;
-                margin-top: 10px;
-                margin-bottom: 20px;
-            }
-            summary {
-                cursor: pointer;
-                font-weight: bold;
-                color: #31333F;
-            }
-            
-            /* 文字色を黒(#31333F)に固定 */
-            .stApp, .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown span, .stMarkdown div, .stDataFrame {
-                color: #31333F !important;
+            /* ==========================================
+               カード風コンテナ
+            ========================================== */
+            .stExpander {
                 background-color: #ffffff !important;
-            }
-            div[data-testid="stAppViewContainer"] {
-                background-color: #ffffff !important;
-            }
-            .stTextInput input, .stTextArea textarea {
-                color: #31333F !important;
-                background-color: #f0f2f6 !important;
+                border: 1px solid #e0e0e0 !important;
+                border-radius: 12px !important;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
+                margin-bottom: 1rem !important;
             }
             
-            /* ★スマホ対策：プレースホルダー（入力例）の色を強制的に濃くする */
+            .stExpander > details > summary {
+                padding: 1rem !important;
+                font-weight: 600 !important;
+                color: #31333F !important;
+            }
+            
+            /* ==========================================
+               入力フォーム
+            ========================================== */
+            .stTextArea textarea, .stTextInput input {
+                border-radius: 10px !important;
+                border: 2px solid #e0e0e0 !important;
+                padding: 0.75rem !important;
+                font-size: 1rem !important;
+                transition: border-color 0.2s ease !important;
+            }
+            
+            .stTextArea textarea:focus, .stTextInput input:focus {
+                border-color: #ff4b4b !important;
+                box-shadow: 0 0 0 3px rgba(255, 75, 75, 0.1) !important;
+            }
+            
             ::placeholder {
                 color: #888888 !important;
-                opacity: 1; /* Firefox対策 */
-            }
-            :-ms-input-placeholder {
-                color: #888888 !important;
-            }
-            ::-ms-input-placeholder {
-                color: #888888 !important;
+                opacity: 1;
             }
             
-            /* M&Aスコア用のカスタムスタイル */
-            .ma-critical { background-color: #fee2e2; border-left: 4px solid #ef4444; padding: 10px; margin: 5px 0; border-radius: 4px; }
-            .ma-high { background-color: #ffedd5; border-left: 4px solid #f97316; padding: 10px; margin: 5px 0; border-radius: 4px; }
-            .ma-medium { background-color: #fef9c3; border-left: 4px solid #eab308; padding: 10px; margin: 5px 0; border-radius: 4px; }
-            .ma-low { background-color: #dcfce7; border-left: 4px solid #22c55e; padding: 10px; margin: 5px 0; border-radius: 4px; }
+            /* ==========================================
+               データテーブル
+            ========================================== */
+            .stDataFrame {
+                border-radius: 12px !important;
+                overflow: hidden !important;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.08) !important;
+            }
+            
+            /* ==========================================
+               インフォボックス
+            ========================================== */
+            .stAlert {
+                border-radius: 10px !important;
+                padding: 1rem !important;
+            }
+            
+            /* ==========================================
+               メトリクス（数値表示）
+            ========================================== */
+            [data-testid="stMetricValue"] {
+                font-size: 1.5rem !important;
+                font-weight: 700 !important;
+                text-align: center !important;
+            }
+            
+            [data-testid="stMetricLabel"] {
+                text-align: center !important;
+            }
+            
+            /* ==========================================
+               M&Aスコア用カード
+            ========================================== */
+            .ma-critical { 
+                background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+                border-left: 5px solid #ef4444; 
+                padding: 1rem 1.25rem; 
+                margin: 0.75rem 0; 
+                border-radius: 10px;
+                box-shadow: 0 2px 8px rgba(239, 68, 68, 0.15);
+            }
+            .ma-high { 
+                background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
+                border-left: 5px solid #f97316; 
+                padding: 1rem 1.25rem; 
+                margin: 0.75rem 0; 
+                border-radius: 10px;
+                box-shadow: 0 2px 8px rgba(249, 115, 22, 0.15);
+            }
+            .ma-medium { 
+                background: linear-gradient(135deg, #fef9c3 0%, #fef08a 100%);
+                border-left: 5px solid #eab308; 
+                padding: 1rem 1.25rem; 
+                margin: 0.75rem 0; 
+                border-radius: 10px;
+                box-shadow: 0 2px 8px rgba(234, 179, 8, 0.15);
+            }
+            .ma-low { 
+                background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+                border-left: 5px solid #22c55e; 
+                padding: 1rem 1.25rem; 
+                margin: 0.75rem 0; 
+                border-radius: 10px;
+                box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15);
+            }
+            
+            /* ==========================================
+               文字色・背景色の強制設定
+            ========================================== */
+            .stApp, .stMarkdown, .stMarkdown p, .stMarkdown li, 
+            .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, 
+            .stMarkdown span, .stMarkdown div, .stDataFrame {
+                color: #31333F !important;
+                background-color: #ffffff !important;
+            }
+            
+            div[data-testid="stAppViewContainer"] {
+                background-color: #f8f9fa !important;
+            }
+            
+            /* ==========================================
+               区切り線
+            ========================================== */
+            hr {
+                margin: 2rem 0 !important;
+                border: none !important;
+                height: 1px !important;
+                background: linear-gradient(to right, transparent, #e0e0e0, transparent) !important;
+            }
+            
+            /* ==========================================
+               レスポンシブデザイン - タブレット
+            ========================================== */
+            @media (max-width: 992px) {
+                .main .block-container {
+                    padding-left: 1.5rem !important;
+                    padding-right: 1.5rem !important;
+                }
+                
+                h1 {
+                    font-size: 1.8rem !important;
+                }
+                
+                .stTabs [data-baseweb="tab"] {
+                    padding: 0.6rem 1rem !important;
+                    font-size: 0.9rem !important;
+                }
+            }
+            
+            /* ==========================================
+               レスポンシブデザイン - スマートフォン
+            ========================================== */
+            @media (max-width: 768px) {
+                .main .block-container {
+                    padding-left: 1rem !important;
+                    padding-right: 1rem !important;
+                    padding-top: 1rem !important;
+                }
+                
+                h1 {
+                    font-size: 1.5rem !important;
+                    padding-bottom: 0.75rem !important;
+                }
+                
+                h2, .stSubheader {
+                    font-size: 1.2rem !important;
+                }
+                
+                /* タブを横スクロール可能に */
+                .stTabs [data-baseweb="tab-list"] {
+                    flex-wrap: nowrap !important;
+                    overflow-x: auto !important;
+                    -webkit-overflow-scrolling: touch !important;
+                    padding: 0.5rem !important;
+                    gap: 4px !important;
+                }
+                
+                .stTabs [data-baseweb="tab"] {
+                    padding: 0.5rem 0.75rem !important;
+                    font-size: 0.85rem !important;
+                    white-space: nowrap !important;
+                }
+                
+                /* ボタン */
+                div.stButton > button:first-child {
+                    width: 100% !important;
+                    padding: 0.75rem 1.5rem !important;
+                }
+                
+                /* テキストエリア */
+                .stTextArea textarea {
+                    font-size: 16px !important; /* iOS zoomを防ぐ */
+                }
+                
+                /* メトリクス */
+                [data-testid="stMetricValue"] {
+                    font-size: 1.2rem !important;
+                }
+                
+                /* カラム - スマホでは縦並び */
+                [data-testid="column"] {
+                    width: 100% !important;
+                    flex: 1 1 100% !important;
+                }
+                
+                /* M&Aカード */
+                .ma-critical, .ma-high, .ma-medium, .ma-low {
+                    padding: 0.75rem 1rem;
+                    font-size: 0.9rem;
+                }
+                
+                /* Expander */
+                .stExpander > details > summary {
+                    padding: 0.75rem !important;
+                    font-size: 0.95rem !important;
+                }
+                
+                /* データテーブル横スクロール */
+                .stDataFrame {
+                    overflow-x: auto !important;
+                }
+            }
+            
+            /* ==========================================
+               超小型スマートフォン
+            ========================================== */
+            @media (max-width: 480px) {
+                h1 {
+                    font-size: 1.3rem !important;
+                }
+                
+                .stTabs [data-baseweb="tab"] {
+                    padding: 0.4rem 0.6rem !important;
+                    font-size: 0.8rem !important;
+                }
+            }
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
