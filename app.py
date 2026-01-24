@@ -1285,11 +1285,8 @@ with tab3:
     st.markdown("### ⚙️ 基本設定")
     enabled = st.toggle("通知を有効にする", value=config.enabled, key="notify_enabled")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        min_score = st.slider("通知する最低スコア", 0, 100, config.min_score_threshold, key="min_score")
-    with col2:
-        critical_only = st.checkbox("緊急レベルのみ通知", value=config.notify_critical_only, key="critical_only")
+    min_score = st.slider("通知する最低スコア", 0, 100, config.min_score_threshold, key="min_score",
+                          help="このスコア以上の銘柄が検知された場合に通知されます")
     
     st.divider()
     
@@ -1355,7 +1352,7 @@ with tab3:
             line_enabled=False,
             line_token="",
             min_score_threshold=min_score,
-            notify_critical_only=critical_only,
+            notify_critical_only=False,
         )
         notifier.save_notification_config(new_config)
         st.session_state["notification_config"] = new_config
