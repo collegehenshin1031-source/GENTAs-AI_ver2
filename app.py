@@ -1,17 +1,24 @@
+"""
+源太AI🤖ハゲタカSCOPE
+- 全銘柄24時間監視
+- ハゲタカ（機関投資家）の足跡を自動検知
+- ロックオン通知システム
+"""
+
 import re
-import math
 import unicodedata
 import time
 from typing import Any, Dict, List, Optional
 import pandas as pd
 import numpy as np
 import streamlit as st
-import fair_value_calc_y4 as fv
-import ma_detector as ma
-import notifier
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime
+
+import hagetaka_scanner as scanner
+import ma_detector as ma
+import notifier
 
 # ==========================================
 # 🔑 パスワード設定
@@ -22,479 +29,292 @@ ADMIN_CODE = "888888"
 # ==========================================
 # UI設定
 # ==========================================
-st.set_page_config(page_title="源太ＡＩ🤖ハゲタカＳＣＯＰＥ", page_icon="📈", layout="wide")
+st.set_page_config(
+    page_title="源太AI🤖ハゲタカSCOPE", 
+    page_icon="🦅", 
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-hide_streamlit_style = """
-            <style>
-            /* ==========================================
-               🎨 先乗り株カレッジ ブランドカラー定義
-               - Primary Red: #C41E3A (深い赤)
-               - Accent Gold: #FFD700 (ゴールド)
-               - Light Red: #E85A71 (明るい赤)
-               - Background: #FAFAFA (オフホワイト)
-               - Card: #FFFFFF (白)
-               - Text: #2D3748 (ダークグレー)
-            ========================================== */
-            
-            /* ==========================================
-               基本設定・Streamlit要素非表示
-            ========================================== */
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            header {visibility: hidden;}
-            .stDeployButton {display:none;}
-            
-            /* ==========================================
-               全体背景 - オフホワイト + 赤のアクセント
-            ========================================== */
-            div[data-testid="stAppViewContainer"] {
-                background: linear-gradient(135deg, #FAFAFA 0%, #FFF5F5 100%) !important;
-            }
-            
-            .stApp {
-                background: transparent !important;
-            }
-            
-            /* ==========================================
-               メインコンテナ - 中央揃え
-            ========================================== */
-            .main .block-container {
-                max-width: 1100px !important;
-                padding: 1.5rem 2rem 3rem 2rem !important;
-                margin: 0 auto !important;
-            }
-            
-            /* ==========================================
-               ヘッダー・タイトル
-            ========================================== */
-            h1 {
-                text-align: center !important;
-                font-size: 1.8rem !important;
-                font-weight: 700 !important;
-                color: #C41E3A !important;
-                margin-bottom: 0.5rem !important;
-                padding: 1rem 0 !important;
-                background: linear-gradient(135deg, #C41E3A 0%, #E85A71 100%) !important;
-                -webkit-background-clip: text !important;
-                -webkit-text-fill-color: transparent !important;
-                background-clip: text !important;
-            }
-            
-            h2, h3 {
-                color: #2D3748 !important;
-                font-weight: 600 !important;
-            }
-            
-            /* サブヘッダー */
-            .stSubheader, [data-testid="stSubheader"] {
-                text-align: center !important;
-                color: #C41E3A !important;
-                font-size: 1.3rem !important;
-                font-weight: 600 !important;
-                padding-bottom: 0.5rem !important;
-                border-bottom: 2px solid #FFD700 !important;
-                margin-bottom: 1rem !important;
-            }
-            
-            /* ==========================================
-               タブスタイル - 先乗り株カレッジ風
-            ========================================== */
-            .stTabs [data-baseweb="tab-list"] {
-                justify-content: center !important;
-                gap: 0 !important;
-                background-color: #FFF !important;
-                padding: 0.4rem !important;
-                border-radius: 16px !important;
-                box-shadow: 0 2px 12px rgba(196, 30, 58, 0.1) !important;
-                margin-bottom: 1.5rem !important;
-                border: 1px solid #F0E0E0 !important;
-            }
-            
-            .stTabs [data-baseweb="tab"] {
-                padding: 0.7rem 1.8rem !important;
-                border-radius: 12px !important;
-                font-weight: 600 !important;
-                font-size: 0.95rem !important;
-                color: #666 !important;
-                background: transparent !important;
-                border: none !important;
-                transition: all 0.3s ease !important;
-            }
-            
-            .stTabs [data-baseweb="tab"]:hover {
-                color: #C41E3A !important;
-                background: #FFF5F5 !important;
-            }
-            
-            .stTabs [aria-selected="true"] {
-                background: linear-gradient(135deg, #C41E3A 0%, #E85A71 100%) !important;
-                color: white !important;
-                box-shadow: 0 4px 12px rgba(196, 30, 58, 0.3) !important;
-            }
-            
-            /* タブ下線を非表示 */
-            .stTabs [data-baseweb="tab-highlight"] {
-                display: none !important;
-            }
-            
-            .stTabs [data-baseweb="tab-border"] {
-                display: none !important;
-            }
-            
-            /* ==========================================
-               ボタンスタイル - ゴールドアクセント
-            ========================================== */
-            div.stButton {
-                text-align: center !important;
-            }
-            
-            div.stButton > button:first-child {
-                background: linear-gradient(135deg, #C41E3A 0%, #E85A71 100%) !important;
-                color: white !important;
-                font-weight: 700 !important;
-                border-radius: 12px !important;
-                border: none !important;
-                padding: 0.85rem 2.5rem !important;
-                box-shadow: 0 4px 15px rgba(196, 30, 58, 0.25) !important;
-                transition: all 0.3s ease !important;
-                font-size: 1rem !important;
-                letter-spacing: 0.5px !important;
-            }
-            
-            div.stButton > button:hover {
-                transform: translateY(-3px) !important;
-                box-shadow: 0 8px 25px rgba(196, 30, 58, 0.35) !important;
-                background: linear-gradient(135deg, #A01830 0%, #C41E3A 100%) !important;
-            }
-            
-            /* セカンダリボタン */
-            div.stButton > button[kind="secondary"] {
-                background: #FFF !important;
-                color: #C41E3A !important;
-                border: 2px solid #C41E3A !important;
-            }
-            
-            /* ==========================================
-               カード風Expander - マネーフォワード風
-            ========================================== */
-            .stExpander {
-                background-color: #FFFFFF !important;
-                border: none !important;
-                border-radius: 16px !important;
-                box-shadow: 0 2px 12px rgba(0,0,0,0.06) !important;
-                margin-bottom: 1rem !important;
-                overflow: hidden !important;
-            }
-            
-            .stExpander > details {
-                border: none !important;
-            }
-            
-            .stExpander > details > summary {
-                padding: 1rem 1.25rem !important;
-                font-weight: 600 !important;
-                color: #2D3748 !important;
-                background: #FFFFFF !important;
-                border-radius: 16px !important;
-                transition: all 0.2s ease !important;
-            }
-            
-            .stExpander > details > summary:hover {
-                background: #FFF8F8 !important;
-            }
-            
-            .stExpander > details[open] > summary {
-                border-bottom: 1px solid #F0E0E0 !important;
-                border-radius: 16px 16px 0 0 !important;
-            }
-            
-            /* ==========================================
-               入力フォーム
-            ========================================== */
-            .stTextArea textarea, .stTextInput input {
-                background: #FFFFFF !important;
-                border-radius: 12px !important;
-                border: 2px solid #E8E8E8 !important;
-                padding: 0.85rem 1rem !important;
-                font-size: 1rem !important;
-                color: #2D3748 !important;
-                transition: all 0.2s ease !important;
-            }
-            
-            .stTextArea textarea:focus, .stTextInput input:focus {
-                border-color: #C41E3A !important;
-                box-shadow: 0 0 0 4px rgba(196, 30, 58, 0.1) !important;
-            }
-            
-            ::placeholder {
-                color: #A0A0A0 !important;
-                opacity: 1;
-            }
-            
-            /* ==========================================
-               データテーブル
-            ========================================== */
-            .stDataFrame {
-                background: #FFFFFF !important;
-                border-radius: 16px !important;
-                overflow: hidden !important;
-                box-shadow: 0 2px 12px rgba(0,0,0,0.06) !important;
-                border: 1px solid #F0E0E0 !important;
-            }
-            
-            .stDataFrame [data-testid="stDataFrameResizable"] {
-                border-radius: 16px !important;
-            }
-            
-            /* ==========================================
-               インフォボックス - ゴールドアクセント
-            ========================================== */
-            .stAlert {
-                border-radius: 12px !important;
-                border: none !important;
-            }
-            
-            /* info */
-            div[data-testid="stAlert"][data-baseweb="notification"] {
-                background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%) !important;
-                border-left: 4px solid #FFD700 !important;
-            }
-            
-            /* ==========================================
-               メトリクス - カード風
-            ========================================== */
-            [data-testid="stMetric"] {
-                background: #FFFFFF !important;
-                padding: 1rem !important;
-                border-radius: 12px !important;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
-            }
-            
-            [data-testid="stMetricValue"] {
-                font-size: 1.6rem !important;
-                font-weight: 700 !important;
-                color: #C41E3A !important;
-                text-align: center !important;
-            }
-            
-            [data-testid="stMetricLabel"] {
-                text-align: center !important;
-                color: #666 !important;
-                font-weight: 500 !important;
-            }
-            
-            /* ==========================================
-               M&Aスコアカード - グラデーション
-            ========================================== */
-            .ma-critical { 
-                background: linear-gradient(135deg, #FEE2E2 0%, #FECACA 100%);
-                border-left: 5px solid #C41E3A; 
-                padding: 1.25rem; 
-                margin: 0.75rem 0; 
-                border-radius: 14px;
-                box-shadow: 0 3px 12px rgba(196, 30, 58, 0.12);
-            }
-            .ma-high { 
-                background: linear-gradient(135deg, #FFEDD5 0%, #FED7AA 100%);
-                border-left: 5px solid #F97316; 
-                padding: 1.25rem; 
-                margin: 0.75rem 0; 
-                border-radius: 14px;
-                box-shadow: 0 3px 12px rgba(249, 115, 22, 0.12);
-            }
-            .ma-medium { 
-                background: linear-gradient(135deg, #FEF9C3 0%, #FEF08A 100%);
-                border-left: 5px solid #FFD700; 
-                padding: 1.25rem; 
-                margin: 0.75rem 0; 
-                border-radius: 14px;
-                box-shadow: 0 3px 12px rgba(255, 215, 0, 0.15);
-            }
-            .ma-low { 
-                background: linear-gradient(135deg, #DCFCE7 0%, #BBF7D0 100%);
-                border-left: 5px solid #22C55E; 
-                padding: 1.25rem; 
-                margin: 0.75rem 0; 
-                border-radius: 14px;
-                box-shadow: 0 3px 12px rgba(34, 197, 94, 0.12);
-            }
-            
-            /* ==========================================
-               トグル・チェックボックス
-            ========================================== */
-            .stCheckbox label span {
-                color: #2D3748 !important;
-            }
-            
-            /* ==========================================
-               区切り線
-            ========================================== */
-            hr {
-                margin: 2rem 0 !important;
-                border: none !important;
-                height: 1px !important;
-                background: linear-gradient(to right, transparent, #E0D0D0, transparent) !important;
-            }
-            
-            /* ==========================================
-               マークダウンテキスト
-            ========================================== */
-            .stMarkdown, .stMarkdown p, .stMarkdown li, 
-            .stMarkdown span, .stMarkdown div {
-                color: #2D3748 !important;
-            }
-            
-            .stMarkdown a {
-                color: #C41E3A !important;
-                text-decoration: none !important;
-            }
-            
-            .stMarkdown a:hover {
-                text-decoration: underline !important;
-            }
-            
-            /* テーブル内のスタイル */
-            .stMarkdown table {
-                border-collapse: collapse !important;
-                width: 100% !important;
-                margin: 1rem 0 !important;
-            }
-            
-            .stMarkdown th {
-                background: #C41E3A !important;
-                color: white !important;
-                padding: 0.75rem !important;
-            }
-            
-            .stMarkdown td {
-                padding: 0.75rem !important;
-                border-bottom: 1px solid #E8E8E8 !important;
-            }
-            
-            /* ==========================================
-               スライダー
-            ========================================== */
-            .stSlider [data-baseweb="slider"] [data-testid="stThumbValue"] {
-                color: #C41E3A !important;
-            }
-            
-            /* ==========================================
-               レスポンシブ - タブレット
-            ========================================== */
-            @media (max-width: 992px) {
-                .main .block-container {
-                    padding: 1rem 1.5rem 2rem 1.5rem !important;
-                }
-                
-                h1 {
-                    font-size: 1.6rem !important;
-                }
-                
-                .stTabs [data-baseweb="tab"] {
-                    padding: 0.6rem 1.2rem !important;
-                    font-size: 0.9rem !important;
-                }
-            }
-            
-            /* ==========================================
-               レスポンシブ - スマートフォン
-            ========================================== */
-            @media (max-width: 768px) {
-                .main .block-container {
-                    padding: 0.75rem 1rem 2rem 1rem !important;
-                }
-                
-                h1 {
-                    font-size: 1.4rem !important;
-                    padding: 0.75rem 0 !important;
-                }
-                
-                /* タブ横スクロール */
-                .stTabs [data-baseweb="tab-list"] {
-                    flex-wrap: nowrap !important;
-                    overflow-x: auto !important;
-                    -webkit-overflow-scrolling: touch !important;
-                    padding: 0.3rem !important;
-                    gap: 0 !important;
-                    justify-content: flex-start !important;
-                }
-                
-                .stTabs [data-baseweb="tab"] {
-                    padding: 0.55rem 1rem !important;
-                    font-size: 0.85rem !important;
-                    white-space: nowrap !important;
-                    flex-shrink: 0 !important;
-                }
-                
-                /* ボタン全幅 */
-                div.stButton > button:first-child {
-                    width: 100% !important;
-                    padding: 0.8rem 1.5rem !important;
-                }
-                
-                /* テキストエリア - iOS zoom防止 */
-                .stTextArea textarea, .stTextInput input {
-                    font-size: 16px !important;
-                }
-                
-                /* メトリクス */
-                [data-testid="stMetricValue"] {
-                    font-size: 1.3rem !important;
-                }
-                
-                /* カラム縦並び */
-                [data-testid="column"] {
-                    width: 100% !important;
-                    flex: 1 1 100% !important;
-                }
-                
-                /* M&Aカード */
-                .ma-critical, .ma-high, .ma-medium, .ma-low {
-                    padding: 1rem;
-                    font-size: 0.9rem;
-                    border-radius: 12px;
-                }
-                
-                /* Expander */
-                .stExpander {
-                    border-radius: 12px !important;
-                }
-                
-                .stExpander > details > summary {
-                    padding: 0.85rem 1rem !important;
-                    font-size: 0.95rem !important;
-                }
-                
-                /* データテーブル横スクロール */
-                .stDataFrame {
-                    border-radius: 12px !important;
-                }
-            }
-            
-            /* ==========================================
-               超小型スマートフォン
-            ========================================== */
-            @media (max-width: 480px) {
-                h1 {
-                    font-size: 1.25rem !important;
-                }
-                
-                .stTabs [data-baseweb="tab"] {
-                    padding: 0.5rem 0.8rem !important;
-                    font-size: 0.8rem !important;
-                }
-                
-                div.stButton > button:first-child {
-                    font-size: 0.95rem !important;
-                }
-            }
-            </style>
-            """
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+# ==========================================
+# 🎨 先乗り株カレッジ ブランドCSS
+# ==========================================
+st.markdown("""
+<style>
+/* 基本設定・Streamlit要素非表示 */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+.stDeployButton {display:none;}
 
-# -----------------------------
-# 🔐 認証
-# -----------------------------
+/* 全体背景 */
+div[data-testid="stAppViewContainer"] {
+    background: linear-gradient(180deg, #FAFAFA 0%, #FFF5F5 100%) !important;
+}
+
+/* メインコンテナ */
+.main .block-container {
+    max-width: 1200px !important;
+    padding: 1rem 2rem 3rem 2rem !important;
+    margin: 0 auto !important;
+}
+
+/* ヘッダー */
+h1 {
+    text-align: center !important;
+    font-size: 2rem !important;
+    font-weight: 800 !important;
+    background: linear-gradient(135deg, #C41E3A 0%, #E85A71 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+    margin-bottom: 0.5rem !important;
+}
+
+/* サブタイトル */
+.subtitle {
+    text-align: center;
+    color: #666;
+    font-size: 0.95rem;
+    margin-bottom: 1.5rem;
+}
+
+/* タブスタイル */
+.stTabs [data-baseweb="tab-list"] {
+    justify-content: center !important;
+    gap: 0 !important;
+    background-color: #FFF !important;
+    padding: 0.4rem !important;
+    border-radius: 16px !important;
+    box-shadow: 0 2px 12px rgba(196, 30, 58, 0.1) !important;
+    margin-bottom: 1.5rem !important;
+}
+
+.stTabs [data-baseweb="tab"] {
+    padding: 0.75rem 2rem !important;
+    border-radius: 12px !important;
+    font-weight: 600 !important;
+    font-size: 1rem !important;
+    color: #666 !important;
+    transition: all 0.3s ease !important;
+}
+
+.stTabs [aria-selected="true"] {
+    background: linear-gradient(135deg, #C41E3A 0%, #E85A71 100%) !important;
+    color: white !important;
+    box-shadow: 0 4px 12px rgba(196, 30, 58, 0.3) !important;
+}
+
+.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] {
+    display: none !important;
+}
+
+/* ボタン */
+div.stButton {
+    text-align: center !important;
+}
+
+div.stButton > button:first-child {
+    background: linear-gradient(135deg, #C41E3A 0%, #E85A71 100%) !important;
+    color: white !important;
+    font-weight: 700 !important;
+    border-radius: 12px !important;
+    border: none !important;
+    padding: 0.85rem 2.5rem !important;
+    box-shadow: 0 4px 15px rgba(196, 30, 58, 0.25) !important;
+    transition: all 0.3s ease !important;
+    font-size: 1.05rem !important;
+}
+
+div.stButton > button:hover {
+    transform: translateY(-3px) !important;
+    box-shadow: 0 8px 25px rgba(196, 30, 58, 0.35) !important;
+}
+
+/* カード */
+.stock-card {
+    background: white;
+    border-radius: 16px;
+    padding: 1.25rem;
+    margin: 0.75rem 0;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    border-left: 5px solid #C41E3A;
+    transition: all 0.2s ease;
+}
+
+.stock-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(196, 30, 58, 0.15);
+}
+
+.stock-card.lockon {
+    border-left-color: #C41E3A;
+    background: linear-gradient(135deg, #FFF 0%, #FFF5F5 100%);
+}
+
+.stock-card.high {
+    border-left-color: #F97316;
+    background: linear-gradient(135deg, #FFF 0%, #FFF7ED 100%);
+}
+
+.stock-card.medium {
+    border-left-color: #EAB308;
+    background: linear-gradient(135deg, #FFF 0%, #FEFCE8 100%);
+}
+
+/* スコアバッジ */
+.score-badge {
+    display: inline-block;
+    padding: 0.35rem 0.85rem;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.score-badge.lockon {
+    background: linear-gradient(135deg, #C41E3A 0%, #E85A71 100%);
+    color: white;
+}
+
+.score-badge.high {
+    background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
+    color: white;
+}
+
+.score-badge.medium {
+    background: linear-gradient(135deg, #EAB308 0%, #FACC15 100%);
+    color: #1a1a1a;
+}
+
+/* シグナルタグ */
+.signal-tag {
+    display: inline-block;
+    background: #F3F4F6;
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    margin: 0.15rem;
+    color: #374151;
+}
+
+/* メトリクス */
+[data-testid="stMetric"] {
+    background: white !important;
+    padding: 1rem !important;
+    border-radius: 12px !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
+}
+
+[data-testid="stMetricValue"] {
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    color: #C41E3A !important;
+}
+
+/* Expander */
+.stExpander {
+    background-color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 12px !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
+}
+
+/* 入力フォーム */
+.stTextArea textarea, .stTextInput input {
+    border-radius: 10px !important;
+    border: 2px solid #E8E8E8 !important;
+    font-size: 16px !important;
+}
+
+.stTextArea textarea:focus, .stTextInput input:focus {
+    border-color: #C41E3A !important;
+}
+
+/* ヒーローセクション */
+.hero-section {
+    text-align: center;
+    padding: 2rem 1rem;
+    background: linear-gradient(135deg, #C41E3A 0%, #E85A71 100%);
+    border-radius: 20px;
+    color: white;
+    margin-bottom: 1.5rem;
+}
+
+.hero-section h2 {
+    color: white !important;
+    font-size: 1.3rem;
+    margin-bottom: 0.5rem;
+}
+
+.hero-section p {
+    opacity: 0.9;
+    font-size: 0.95rem;
+}
+
+/* ステータスインジケーター */
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: white;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+}
+
+.status-dot.active {
+    background: #22C55E;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* レスポンシブ */
+@media (max-width: 768px) {
+    .main .block-container {
+        padding: 0.75rem 1rem 2rem 1rem !important;
+    }
+    
+    h1 {
+        font-size: 1.5rem !important;
+    }
+    
+    .stTabs [data-baseweb="tab-list"] {
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        padding: 0.6rem 1rem !important;
+        font-size: 0.9rem !important;
+        white-space: nowrap !important;
+    }
+    
+    div.stButton > button:first-child {
+        width: 100% !important;
+    }
+    
+    .hero-section {
+        padding: 1.5rem 1rem;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ==========================================
+# 認証
+# ==========================================
 def check_password():
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
@@ -513,640 +333,277 @@ def check_password():
 
 check_password()
 
-# -----------------------------
-# 📈 チャート描画関数
-# -----------------------------
-def draw_wall_chart(ticker_data: Dict[str, Any]):
-    hist = ticker_data.get("hist_data")
-    if hist is None or hist.empty:
-        st.warning("チャートデータがありません（取得失敗）")
-        return
-
-    name = ticker_data.get("name", "Unknown")
-    code = ticker_data.get("code", "----")
-    current_price = ticker_data.get("price", 0)
-
-    hist = hist.reset_index()
-    hist['Date'] = pd.to_datetime(hist.iloc[:, 0]).dt.tz_localize(None)
-
-    # --- 1. 価格帯別出来高の集計 ---
-    bins = 50
-    p_min = min(hist['Close'].min(), current_price * 0.9)
-    p_max = max(hist['Close'].max(), current_price * 1.1)
-    bin_edges = np.linspace(p_min, p_max, bins)
-    hist['bin'] = pd.cut(hist['Close'], bins=bin_edges)
-    vol_profile = hist.groupby('bin', observed=False)['Volume'].sum()
-
-    # --- 2. 抵抗線・支持線のロジック ---
-    upper_candidates = []
-    lower_candidates = []
-
-    for interval, volume in vol_profile.items():
-        mid_price = interval.mid
-        if volume == 0: continue
-        
-        if mid_price > current_price:
-            upper_candidates.append({'vol': volume, 'price': mid_price})
-        else:
-            lower_candidates.append({'vol': volume, 'price': mid_price})
-
-    # 赤（上値抵抗線）：出来高最大 > 価格低い方
-    if upper_candidates:
-        best_red = sorted(upper_candidates, key=lambda x: (-x['vol'], x['price']))[0]
-        resistance_price = best_red['price']
-    else:
-        resistance_price = hist['High'].max()
-
-    # 青（下値支持線）：出来高最大 > 価格高い方
-    if lower_candidates:
-        best_blue = sorted(lower_candidates, key=lambda x: (-x['vol'], -x['price']))[0]
-        support_price = best_blue['price']
-    else:
-        support_price = hist['Low'].min()
-
-    # --- バーの色分け ---
-    bar_colors = []
-    for interval in vol_profile.index:
-        if interval.mid > current_price:
-            bar_colors.append('rgba(255, 82, 82, 0.4)')
-        else:
-            bar_colors.append('rgba(33, 150, 243, 0.4)')
-
-    fig = make_subplots(
-        rows=1, cols=2, 
-        shared_yaxes=True, 
-        column_widths=[0.75, 0.25], 
-        horizontal_spacing=0.02,
-        subplot_titles=("📉 トレンド分析", "🧱 需給の壁（価格帯別出来高）")
-    )
-
-    # 1. ローソク足
-    fig.add_trace(go.Candlestick(
-        x=hist['Date'], open=hist['Open'], high=hist['High'], low=hist['Low'], close=hist['Close'], 
-        name='株価'
-    ), row=1, col=1)
-
-    # 2. 出来高プロファイル
-    fig.add_trace(go.Bar(
-        x=vol_profile.values, y=[i.mid for i in vol_profile.index], 
-        orientation='h', marker_color=bar_colors, name='出来高'
-    ), row=1, col=2)
-
-    # --- ライン描画 ---
-    fig.add_hline(
-        y=resistance_price, 
-        line_color="#ef4444", 
-        line_width=2,
-        annotation_text="🟥 上値抵抗線（抜ければ激アツ）", 
-        annotation_position="top left",
-        annotation_font_color="#ef4444",
-        row=1, col=1
-    )
-
-    fig.add_hline(
-        y=support_price, 
-        line_color="#3b82f6", 
-        line_width=2,
-        annotation_text="🟦 下値支持線（割れれば即逃げ）", 
-        annotation_position="bottom left",
-        annotation_font_color="#3b82f6",
-        row=1, col=1
-    )
-
-    # レイアウトで「強制ホワイト化」を指定
-    fig.update_layout(
-        title=f"📊 {name} ({code})", 
-        height=450, 
-        showlegend=False, 
-        xaxis_rangeslider_visible=False, 
-        margin=dict(l=10, r=10, t=60, b=10), 
-        dragmode=False,
-        template="plotly_white",
-        paper_bgcolor='white',
-        plot_bgcolor='white',
-        font=dict(color='black')
-    )
-    fig.update_xaxes(fixedrange=True) 
-    fig.update_yaxes(fixedrange=True)
-
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False}, theme=None)
 
 # ==========================================
-# メイン処理
+# ヘルパー関数
 # ==========================================
-def sanitize_codes(raw_codes: List[str]) -> List[str]:
-    cleaned: List[str] = []
-    for x in raw_codes:
-        if x is None: continue
-        s = str(x).strip()
-        s = unicodedata.normalize('NFKC', s)
-        s = s.upper().replace(" ", "").replace(",", "")
-        if not s: continue
-        m = re.search(r"[0-9A-Z]{4}", s)
-        if m: cleaned.append(m.group(0))
-    uniq: List[str] = []
-    for c in cleaned:
-        if c not in uniq: uniq.append(c)
-    return uniq
-
-# ★フォーマット関数
-def fmt_yen(x):
-    if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
-    try: return f"{float(x):,.0f} 円"
+def fmt_price(x):
+    if x is None or pd.isna(x): return "—"
+    try: return f"¥{float(x):,.0f}"
     except: return "—"
+
 def fmt_pct(x):
-    if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
-    try: return f"{float(x):.2f}%"
-    except: return "—"
-def fmt_market_cap(x):
-    if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
-    try:
-        v = float(x)
-        if v >= 1e12: return f"{v/1e12:.2f} 兆円"
-        elif v >= 1e8: return f"{v/1e8:.0f} 億円"
-        else: return f"{v:,.0f} 円"
-    except: return "—"
-def fmt_big_prob(x):
-    if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
-    try:
-        v = float(x)
-        if v >= 80: return f"🔥 {v:.0f}%" 
-        if v >= 60: return f"⚡ {v:.0f}%" 
-        if v >= 40: return f"👀 {v:.0f}%" 
-        return f"{v:.0f}%"
-    except: return "—"
-
-# ★フォーマット＆状態判定：浮動株・激動率（回転率）
-def fmt_turnover(x):
     if x is None or pd.isna(x): return "—"
     try:
         v = float(x)
-        if v >= 10.0: return f"🌪️ {v:.1f}% (激震)"
-        if v >= 5.0: return f"⚡ {v:.1f}% (活況)"
-        if v < 1.0: return f"☁ {v:.1f}% (閑散)"
-        return f"{v:.1f}% (通常)"
+        sign = "+" if v >= 0 else ""
+        return f"{sign}{v:.2f}%"
     except: return "—"
 
-# ★フォーマット＆状態判定：異常・着火倍率（出来高倍率）
-def fmt_vol_ratio(x):
-    if x is None or pd.isna(x): return "—"
-    try:
-        v = float(x)
-        if v >= 5.0: return f"🔥 {v:.1f}倍 (緊急)"
-        if v >= 3.0: return f"🚀 {v:.1f}倍 (着火)"
-        if v >= 2.0: return f"⚡ {v:.1f}倍 (予兆)"
-        return f"{v:.1f}倍 (通常)"
-    except: return "—"
-
-# ★M&Aスコアのフォーマット
-def fmt_ma_score(x):
+def fmt_volume(x):
     if x is None or pd.isna(x): return "—"
     try:
         v = int(x)
-        if v >= 70: return f"🔴 {v}点"
-        if v >= 50: return f"🟠 {v}点"
-        if v >= 30: return f"🟡 {v}点"
-        if v >= 15: return f"🟢 {v}点"
-        return f"⚪ {v}点"
+        if v >= 1e6: return f"{v/1e6:.1f}M"
+        if v >= 1e3: return f"{v/1e3:.0f}K"
+        return str(v)
     except: return "—"
 
-def calc_rating_from_upside(upside_pct):
-    if upside_pct is None or pd.isna(upside_pct): return 0
-    if upside_pct >= 50: return 5
-    if upside_pct >= 30: return 4
-    if upside_pct >= 15: return 3
-    if upside_pct >= 5: return 2
-    if upside_pct >= 0: return 1
-    return 0
-def to_stars(n):
-    n = max(0, min(5, int(n or 0)))
-    return "★" * n + "☆" * (5 - n)
-def highlight_errors(val):
-    if val == "存在しない銘柄" or val == "エラー":
-        return 'color: #ff4b4b; font-weight: bold;'
-    return ''
+def fmt_market_cap(x):
+    if x is None or pd.isna(x) or x == 0: return "—"
+    try:
+        v = float(x) / 1e8  # 億円換算
+        if v >= 10000: return f"{v/10000:.1f}兆円"
+        return f"{v:.0f}億円"
+    except: return "—"
 
-# ★ランクの色分け関数
-def highlight_rank_color(val):
-    if val == "SSS":
-        return 'background-color: #FFD700; color: #000000; font-weight: bold;'
-    elif val == "SS":
-        return 'background-color: #FF4500; color: #ffffff; font-weight: bold;'
-    elif val == "S":
-        return 'background-color: #FF69B4; color: #ffffff; font-weight: bold;'
-    elif val == "A":
-        return 'background-color: #22c55e; color: #ffffff; font-weight: bold;'
-    elif val == "B":
-        return 'background-color: #3b82f6; color: #ffffff; font-weight: bold;'
-    elif val == "C":
-        return 'background-color: #94a3b8; color: #ffffff; font-weight: bold;'
-    elif val in ["D", "E"]:
-        return 'background-color: #a855f7; color: #ffffff; font-weight: bold;'
-    return ''
-
-# ★M&Aスコアの色分け関数
-def highlight_ma_score(val):
-    if "🔴" in str(val):
-        return 'background-color: #fee2e2; color: #dc2626; font-weight: bold;'
-    elif "🟠" in str(val):
-        return 'background-color: #ffedd5; color: #ea580c; font-weight: bold;'
-    elif "🟡" in str(val):
-        return 'background-color: #fef9c3; color: #ca8a04; font-weight: bold;'
-    elif "🟢" in str(val):
-        return 'background-color: #dcfce7; color: #16a34a; font-weight: bold;'
-    return ''
-
-# ★ランク付け用のスコア計算関数
-def calculate_score_and_rank(row):
-    score = 0
-    up = row.get('upside_pct_num', 0)
-    if pd.isna(up): up = 0
-    if up >= 50: score += 40
-    elif up >= 30: score += 30
-    elif up >= 15: score += 20
-    elif up > 0: score += 10
-    
-    prob = row.get('prob_num', 0)
-    if pd.isna(prob): prob = 0
-    if prob >= 80: score += 30
-    elif prob >= 60: score += 20
-    elif prob >= 40: score += 10
-    
-    growth = row.get('growth_num', 0)
-    if pd.isna(growth): growth = 0
-    if growth >= 30: score += 20
-    elif growth >= 10: score += 10
-    
-    weather = row.get('weather', '')
-    if weather == '☀': score += 10
-    elif weather == '☁': score += 5
-    
-    if score >= 95: return "SSS"
-    if score >= 90: return "SS"
-    if score >= 85: return "S"
-    if score >= 75: return "A"
-    if score >= 60: return "B"
-    if score >= 45: return "C"
-    if score >= 30: return "D"
-    return "E"
-
-def bundle_to_df(bundle: Any, codes: List[str], ma_scores: Optional[Dict[str, ma.MAScore]] = None) -> pd.DataFrame:
-    rows: List[Dict[str, Any]] = []
-    if isinstance(bundle, dict):
-        for code in codes:
-            v = bundle.get(code)
-            if isinstance(v, dict):
-                if v.get("note") == "データ取得不可(Yahoo拒否)" or v.get("name") == "エラー" or v.get("name") == "計算エラー":
-                      v["name"] = "存在しない銘柄"
-                      v["note"] = "—"
-                      v["volume_wall"] = "—"
-                      v["signal_icon"] = "—"
-                      v["weather"] = "—"
-                      v["turnover_pct"] = None
-                      v["volume_ratio"] = None
-                if v.get("note") == "ETF/REIT対象外":
-                      v["note"] = "ETF/REITのため対象外"
-                row = {"ticker": code, **v}
-                
-                # M&Aスコアを追加
-                if ma_scores and code in ma_scores:
-                    ma_score = ma_scores[code]
-                    row["ma_score"] = ma_score.total_score
-                    row["ma_signal"] = ma_score.signal_level.value
-                    row["ma_tags"] = " ".join(ma_score.reason_tags) if ma_score.reason_tags else ""
-                else:
-                    row["ma_score"] = None
-                    row["ma_signal"] = ""
-                    row["ma_tags"] = ""
-            else:
-                row = {"ticker": code, "name": "存在しない銘柄", "note": "—", "value": v, 
-                       "ma_score": None, "ma_signal": "", "ma_tags": ""}
-            rows.append(row)
+def get_signal_class(signal_level):
+    if signal_level == scanner.SignalLevel.LOCKON:
+        return "lockon"
+    elif signal_level == scanner.SignalLevel.HIGH:
+        return "high"
     else:
-        rows.append({"ticker": ",".join(codes), "name": "存在しない銘柄", "note": "—", "value": bundle,
-                     "ma_score": None, "ma_signal": "", "ma_tags": ""})
+        return "medium"
 
-    df = pd.DataFrame(rows)
-    # ★カラム追加
-    cols = ["name", "weather", "price", "fair_value", "upside_pct", "dividend", "dividend_amount", 
-            "growth", "market_cap", "big_prob", "note", "signal_icon", "volume_wall",
-            "turnover_pct", "volume_ratio", "ma_score", "ma_signal", "ma_tags"]
-            
-    for col in cols:
-        if col not in df.columns: df[col] = None
 
-    def _as_float(x):
-        try: return float(x)
-        except: return None
-        
-    df["price_num"] = df["price"].apply(_as_float)
-    df["fair_value_num"] = df["fair_value"].apply(_as_float)
-    df["upside_pct_num"] = df["upside_pct"].apply(_as_float)
-    df["upside_yen_num"] = df["fair_value_num"] - df["price_num"]
-    df["div_num"] = df["dividend"].apply(_as_float)
-    df["div_amount_num"] = df["dividend_amount"].apply(_as_float)
-    df["growth_num"] = df["growth"].apply(_as_float)
-    df["mc_num"] = df["market_cap"].apply(_as_float)
-    df["prob_num"] = df["big_prob"].apply(_as_float)
+def render_stock_card(signal: scanner.HagetakaSignal):
+    """銘柄カードをレンダリング"""
+    card_class = get_signal_class(signal.signal_level)
+    badge_class = card_class
     
-    df["rating"] = df["upside_pct_num"].apply(calc_rating_from_upside)
-    df["stars"] = df["rating"].apply(to_stars)
-    
-    error_mask = df["name"] == "存在しない銘柄"
-    df.loc[error_mask, "stars"] = "—"
-    df.loc[error_mask, "price"] = None
-    df.loc[error_mask, "fair_value"] = None 
-    df.loc[error_mask, "note"] = "—"
+    st.markdown(f"""
+    <div class="stock-card {card_class}">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+                <span class="score-badge {badge_class}">{signal.signal_level.value}</span>
+                <span style="font-size: 1.3rem; font-weight: 700; margin-left: 0.5rem;">{signal.name}</span>
+                <span style="color: #666; margin-left: 0.5rem;">({signal.code})</span>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 1.4rem; font-weight: 700;">{fmt_price(signal.price)}</div>
+                <div style="color: {'#22C55E' if signal.change_pct >= 0 else '#EF4444'}; font-weight: 600;">
+                    {fmt_pct(signal.change_pct)}
+                </div>
+            </div>
+        </div>
+        <div style="margin-top: 0.75rem; display: flex; gap: 1.5rem; flex-wrap: wrap; font-size: 0.9rem; color: #666;">
+            <span>📊 スコア: <strong style="color: #C41E3A;">{signal.total_score}点</strong></span>
+            <span>📈 出来高倍率: <strong>{signal.volume_ratio:.1f}倍</strong></span>
+            <span>🌪️ 回転率: <strong>{signal.turnover_pct:.1f}%</strong></span>
+            <span>💰 時価総額: <strong>{fmt_market_cap(signal.market_cap)}</strong></span>
+        </div>
+        <div style="margin-top: 0.75rem;">
+            {''.join([f'<span class="signal-tag">{s}</span>' for s in signal.signals[:5]])}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    df["ランク"] = df.apply(calculate_score_and_rank, axis=1)
-    df.loc[error_mask, "ランク"] = "—"
-    
-    df["根拠【グレアム数】"] = df["note"].fillna("—")
-
-    df["証券コード"] = df["ticker"]
-    df["銘柄名"] = df["name"].fillna("—")
-    df["業績"] = df["weather"].fillna("—")
-    df["現在値"] = df["price"].apply(fmt_yen)
-    df["理論株価"] = df["fair_value"].apply(fmt_yen)
-    df["上昇余地"] = df["upside_pct_num"].apply(fmt_pct)
-    df["評価"] = df["stars"]
-    df["売買"] = df["signal_icon"].fillna("—")
-    df["需給の壁 (価格帯別出来高)"] = df["volume_wall"].fillna("—")
-    df["配当利回り"] = df["div_num"].apply(fmt_pct)
-    df["年間配当"] = df["div_amount_num"].apply(fmt_yen)
-    df["事業の勢い"] = df["growth_num"].apply(fmt_pct)
-    df["時価総額"] = df["mc_num"].apply(fmt_market_cap)
-    df["大口介入"] = df["prob_num"].apply(fmt_big_prob)
-    
-    # ★名称変更とフォーマット適用
-    df["浮動株・激動率"] = df["turnover_pct"].apply(fmt_turnover)
-    df["異常・着火倍率"] = df["volume_ratio"].apply(fmt_vol_ratio)
-    
-    # ★M&Aスコア
-    df["M&A予兆"] = df["ma_score"].apply(fmt_ma_score)
-    df["M&Aタグ"] = df["ma_tags"].fillna("")
-
-    df.index = df.index + 1
-    df["詳細"] = False
-    
-    # ★カラム配置の変更（M&A予兆を追加）
-    show_cols = [
-        "ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", 
-        "M&A予兆", "M&Aタグ",
-        "需給の壁 (価格帯別出来高)", "詳細", 
-        "配当利回り", "年間配当", "事業の勢い", "業績", 
-        "時価総額", "大口介入", "浮動株・激動率", "異常・着火倍率", "根拠【グレアム数】"
-    ]
-    
-    return df[show_cols]
 
 # ==========================================
-# 通知設定の初期化
+# 通知設定初期化
 # ==========================================
-def init_notification_config():
+def init_session_state():
     if "notification_config" not in st.session_state:
         st.session_state["notification_config"] = notifier.load_notification_config()
     if "watchlist" not in st.session_state:
         st.session_state["watchlist"] = notifier.load_watchlist()
+    if "scan_results" not in st.session_state:
+        st.session_state["scan_results"] = []
+    if "last_scan_time" not in st.session_state:
+        st.session_state["last_scan_time"] = None
 
-init_notification_config()
+init_session_state()
 
-# ==========================================
-# メイン画面構築
-# ==========================================
-st.title("源太ＡＩ🤖ハゲタカＳＣＯＰＥ")
-
-# タブを作成
-tab1, tab2, tab3 = st.tabs(["📈 銘柄分析", "🎯 M&A予兆監視", "🔔 通知設定"])
 
 # ==========================================
-# タブ1: 銘柄分析（既存機能）
+# メイン画面
+# ==========================================
+st.title("🦅 源太AI ハゲタカSCOPE")
+st.markdown('<p class="subtitle">プロの投資戦略をのぞき見る「カンニング級の裏・攻略本」</p>', unsafe_allow_html=True)
+
+# タブ
+tab1, tab2, tab3 = st.tabs(["🎯 ロックオン銘柄", "📊 ハゲタカ監視", "🔔 通知設定"])
+
+
+# ==========================================
+# タブ1: ロックオン銘柄
 # ==========================================
 with tab1:
-    with st.expander("★ ランク・評価基準の見方（クリックで詳細を表示）", expanded=False):
-        st.markdown("""
-### 👑 総合ランク（SSS〜E）
-理論株価の上昇余地だけでなく、**「大口の動き」「事業の成長性」「財務の安全性」**を総合的にスコア化（100点満点）した格付けです。
-- 🟨 **SSS (95-100点)**：**神**。全ての条件が揃った奇跡の銘柄。
-- 🟧 **SS (90-94点)**：**最強**。ほぼ死角なし。
-- 🟪 **S (85-89点)**：**超優秀**。文句なしの買い候補。
-- 🟩 **A (75-84点)**：**優良**。合格点。
-- 🟦 **B (60-74点)**：**普通**。悪くはない。
-- 🟪 **C〜E**：**微妙〜注意**。
-
-### 1. 割安度評価（★）
-**理論株価**（本来の実力）と **現在値** を比較した「お得度」です。
-- :red[★★★★★：**お宝**（上昇余地 **+50%** 以上）]
-- ★★★★☆：**激アツ**（上昇余地 **+30%** 〜 +50%）
-- ★★★☆☆：**有望**（上昇余地 **+15%** 〜 +30%）
-- ★★☆☆☆：**普通**（上昇余地 **+5%** 〜 +15%）
-- ★☆☆☆☆：**トントン**（上昇余地 **0%** 〜 +5%）
-- ☆☆☆☆☆：**割高**（上昇余地 **0% 未満**）
-
-### 2. 売買シグナル（矢印）
-| 表示 | 意味 | 判定ロジック |
-| :--- | :--- | :--- |
-| **↑◎** | **激熱** | **「底値圏」＋「売られすぎ」＋「上昇トレンド」** 等の好条件が3つ以上重なった最強の買い場！ |
-| **↗〇** | **買い** | 複数のプラス要素あり。打診買いのチャンス。 |
-| **→△** | **様子見** | 可もなく不可もなく。方向感が出るまで待つのが無難。 |
-| **↘▲** | **売り** | 天井圏や下落トレンド入り。利益確定や損切りの検討を。 |
-| **↓✖** | **危険** | **「買われすぎ」＋「暴落シグナル」** 等が点灯。手を出してはいけない。 |
-
-### 3. 需給の壁（突破力）
-**過去6ヶ月間で最も取引が活発だった価格帯（しこり玉・岩盤）** です。
-この壁は**「跳ね返される場所（反転）」**であると同時に、**「抜けた後の加速装置（突破）」**でもあります。
-- **🚧 上壁（戻り売り圧力）**
-    - **【基本】** ここまでは上がっても叩き落とされやすい（抵抗線）。
-    - **【突破】** しかしここを食い破れば、売り手不在の**「青天井」**モード突入！
-- **🛡️ 下壁（押し目買い支持）**
-    - **【基本】** ここで下げ止まって反発しやすい（支持線）。
-    - **【割込】** しかしここを割り込むと、ガチホ勢が全員含み損になり**「パニック売り」**が連鎖する恐れあり。
-- **🔥 激戦中（分岐点）**
-    - まさに今、その壁の中で戦っている。突破するか、跳ね返されるか、要注目！
-
-### 4. ハゲタカ・ハント指標（大口検知）
-- **🌪️ 「浮動株・激動率」とは？**
-    - ただの出来高ではありません。**「市場で実際に売買可能な株（浮動株）」**に対して、どれだけ注文が殺到したかを監視します。
-    - **数値が高い（10%以上）**：たった1日で浮動株の1割以上が持ち主を変えた異常事態。**「大口が根こそぎ集めている」**可能性大！
-- **🔥 「異常・着火倍率」とは？**
-    - 「普段の静かな状態（過去20日平均）」と比べて、今日どれだけ突然取引が増えたかを表します。
-    - **倍率が高い（3倍〜5倍）**：今まで見向きもされなかった銘柄に、突如として資金が流入した**「初動（着火）」**の合図です。
-
-### 5. 🆕 M&A予兆スコア
-**「親会社による完全子会社化」「TOB」「MBO」等のM&Aの可能性**を数値化したスコアです。
-- 🔴 **70点以上**：**緊急**。M&A関連ニュースが検知されています！
-- 🟠 **50〜69点**：**高**。要注目。出来高異常や割安評価が重なっています。
-- 🟡 **30〜49点**：**中**。一部シグナルあり。継続監視推奨。
-- 🟢 **15〜29点**：**低**。現時点では目立ったシグナルなし。
-- ⚪ **14点以下**：**なし**。M&A兆候は検出されていません。
-""", unsafe_allow_html=True) 
-
-    st.subheader("🔢 銘柄入力")
-    raw_text = st.text_area("分析したい証券コードを入力してください（※記入例：7203 9984）", height=100, placeholder="例：\n7203\n9984\n285A", key="analysis_input")
+    # ヒーローセクション
+    st.markdown("""
+    <div class="hero-section">
+        <h2>🎯 AIが検知した「今日の標的」</h2>
+        <p>全3,800銘柄をスキャンし、ハゲタカの足跡が見つかった銘柄を厳選表示</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    col1, col2 = st.columns([1, 1])
+    # ステータス表示
+    col1, col2, col3 = st.columns(3)
     with col1:
-        run_btn = st.button("🚀 AIで分析開始！", type="primary", key="run_analysis")
-    with col2:
-        run_with_ma = st.checkbox("M&A予兆分析も実行（時間がかかります）", value=False, key="with_ma")
+        last_scan = st.session_state.get("last_scan_time")
+        if last_scan:
+            st.markdown(f"""
+            <div class="status-indicator">
+                <span class="status-dot active"></span>
+                最終スキャン: {last_scan.strftime('%H:%M')}
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with col3:
+        lockons = [s for s in st.session_state.get("scan_results", []) if s.total_score >= 50]
+        st.metric("ロックオン銘柄", f"{len(lockons)}件")
     
     st.divider()
-
-    if "analysis_bundle" not in st.session_state:
-        st.session_state["analysis_bundle"] = None
-    if "analysis_codes" not in st.session_state:
-        st.session_state["analysis_codes"] = []
-    if "ma_scores" not in st.session_state:
-        st.session_state["ma_scores"] = {}
-
-    if run_btn:
-        raw_codes = raw_text.split()
-        codes = sanitize_codes(raw_codes)
-        if not codes:
-            st.error("証券コードが入力されていません。")
-            st.stop()
-
-        with st.spinner(f"🚀 高速分析中..."):
-            try:
-                bundle = fv.calc_genta_bundle(codes)
-                st.session_state["analysis_bundle"] = bundle
-                st.session_state["analysis_codes"] = codes
-                
-                # M&A予兆分析
-                if run_with_ma:
-                    with st.spinner("🎯 M&A予兆分析中...（ニュース取得のため時間がかかります）"):
-                        ma_scores_dict = {}
-                        stock_data_list = [bundle.get(code, {}) for code in codes]
-                        ma_results = ma.batch_analyze_ma(stock_data_list, with_news=True)
-                        for score in ma_results:
-                            ma_scores_dict[score.code] = score
-                        st.session_state["ma_scores"] = ma_scores_dict
-                else:
-                    # ニュースなしで簡易M&A分析
-                    ma_scores_dict = {}
-                    for code in codes:
-                        data = bundle.get(code, {})
-                        if data.get("name") != "存在しない銘柄":
-                            score = ma.analyze_ma_potential(
-                                code=code,
-                                name=data.get("name", ""),
-                                price=data.get("price"),
-                                pbr=None,
-                                upside_pct=data.get("upside_pct"),
-                                market_cap=data.get("market_cap"),
-                                volume_ratio=data.get("volume_ratio"),
-                                turnover_pct=data.get("turnover_pct"),
-                                turnover_5d_pct=None,
-                                signal_icon=data.get("signal_icon", "—"),
-                                skip_news=True
-                            )
-                            ma_scores_dict[code] = score
-                    st.session_state["ma_scores"] = ma_scores_dict
-                    
-            except Exception as e:
-                st.error(f"エラー: {e}")
-                st.stop()
-
-    if st.session_state["analysis_bundle"]:
-        bundle = st.session_state["analysis_bundle"]
-        codes = st.session_state["analysis_codes"]
-        ma_scores = st.session_state.get("ma_scores", {})
-        
-        df = bundle_to_df(bundle, codes, ma_scores)
-        
-        st.subheader("📊 分析結果")
-        st.info("💡 **「詳細」** 列のチェックボックスをONにすると、下に詳細チャートが表示されます！（複数選択OK）")
-        
-        styled_df = df.style.map(highlight_errors, subset=["銘柄名"])\
-                            .map(highlight_rank_color, subset=["ランク"])\
-                            .map(highlight_ma_score, subset=["M&A予兆"])
-        
-        edited_df = st.data_editor(
-            styled_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "詳細": st.column_config.CheckboxColumn(
-                    "詳細",
-                    help="チャートを表示",
-                    default=False,
-                ),
-                "ランク": st.column_config.TextColumn(
-                    "ランク",
-                    help="総合スコア評価（SSS〜E）",
-                    width="small"
-                ),
-                "M&A予兆": st.column_config.TextColumn(
-                    "M&A予兆",
-                    help="M&A予兆スコア（0-100点）",
-                    width="small"
-                ),
-                "証券コード": st.column_config.TextColumn(disabled=True),
-                "銘柄名": st.column_config.TextColumn(disabled=True),
-            },
-            disabled=["ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", 
-                     "M&A予兆", "M&Aタグ", "需給の壁 (価格帯別出来高)", "配当利回り", "年間配当", 
-                     "事業の勢い", "業績", "時価総額", "大口介入", "根拠【グレアム数】", "浮動株・激動率", "異常・着火倍率"]
+    
+    # スキャン実行
+    st.markdown("### 🔍 銘柄スキャン")
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        scan_codes = st.text_input(
+            "スキャン対象（空欄で全銘柄サンプル）",
+            placeholder="例: 7203 9984 6758（スペース区切り）",
+            help="特定の銘柄だけをスキャンしたい場合に入力"
         )
+    with col2:
+        scan_btn = st.button("🚀 スキャン開始", type="primary", use_container_width=True)
+    
+    if scan_btn:
+        # 対象銘柄を決定
+        if scan_codes.strip():
+            codes = [c.strip() for c in scan_codes.split() if c.strip()]
+        else:
+            codes = scanner.get_all_japan_stocks()[:30]  # サンプルとして30銘柄
         
-        selected_rows = edited_df[edited_df["詳細"] == True]
+        # プログレスバー
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        if not selected_rows.empty:
-            for _, row in selected_rows.iterrows():
-                selected_code = row["証券コード"]
-                ticker_data = bundle.get(selected_code)
+        def update_progress(current, total, code):
+            progress_bar.progress(current / total)
+            status_text.text(f"スキャン中... {current}/{total} - {code}")
+        
+        with st.spinner("🔍 ハゲタカの足跡を探索中..."):
+            results = scanner.scan_all_stocks(codes, progress_callback=update_progress)
+            st.session_state["scan_results"] = results
+            st.session_state["last_scan_time"] = datetime.now()
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        # 通知チェック
+        config = st.session_state.get("notification_config", notifier.NotificationConfig())
+        if config.enabled and config.email_enabled:
+            lockons = [s for s in results if s.total_score >= config.min_score_threshold]
+            if lockons:
+                st.success(f"🎯 {len(lockons)}件のロックオン銘柄を検知！")
+        
+        st.rerun()
+    
+    # 結果表示
+    results = st.session_state.get("scan_results", [])
+    
+    if results:
+        st.divider()
+        
+        # フィルター
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            min_score_filter = st.slider("最低スコア", 0, 100, 30, key="filter_score")
+        with col2:
+            sort_option = st.selectbox("並び順", ["スコア順", "出来高倍率順", "回転率順"])
+        
+        # フィルタリング
+        filtered = [s for s in results if s.total_score >= min_score_filter]
+        
+        # ソート
+        if sort_option == "出来高倍率順":
+            filtered.sort(key=lambda x: x.volume_ratio, reverse=True)
+        elif sort_option == "回転率順":
+            filtered.sort(key=lambda x: x.turnover_pct, reverse=True)
+        else:
+            filtered.sort(key=lambda x: x.total_score, reverse=True)
+        
+        st.markdown(f"### 📋 厳選・監視リスト（{len(filtered)}件）")
+        
+        if not filtered:
+            st.info("条件に合致する銘柄がありません。フィルターを調整してください。")
+        else:
+            for signal in filtered[:20]:  # 上位20件
+                render_stock_card(signal)
                 
-                if ticker_data and ticker_data.get("name") != "存在しない銘柄" and ticker_data.get("hist_data") is not None:
-                    st.divider()
-                    st.markdown(f"### 📉 詳細分析チャート：{ticker_data.get('name')}")
-                    draw_wall_chart(ticker_data)
+                # 詳細展開
+                with st.expander(f"📊 {signal.code} の詳細分析"):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("🥷 ステルス集積", f"{signal.stealth_score}/35点")
+                    with col2:
+                        st.metric("🧱 板の違和感", f"{signal.board_score}/35点")
+                    with col3:
+                        st.metric("🔥 出来高臨界点", f"{signal.volume_score}/30点")
                     
-                    # M&A詳細情報を表示
-                    if selected_code in ma_scores:
-                        ma_score = ma_scores[selected_code]
-                        if ma_score.total_score >= 30:
-                            st.markdown(f"#### 🎯 M&A予兆詳細")
-                            col1, col2, col3, col4 = st.columns(4)
-                            with col1:
-                                st.metric("ニュース", f"{ma_score.news_score}/40点")
-                            with col2:
-                                st.metric("出来高異常", f"{ma_score.volume_score}/30点")
-                            with col3:
-                                st.metric("バリュエーション", f"{ma_score.valuation_score}/20点")
-                            with col4:
-                                st.metric("テクニカル", f"{ma_score.technical_score}/10点")
-                            
-                            if ma_score.news_items:
-                                st.markdown("**📰 関連ニュース**")
-                                for news in ma_score.news_items[:5]:
-                                    st.markdown(f"- {news.title}")
-
-        st.info("""
-        **※ 評価が表示されない（—）銘柄について**
-        赤字決算や財務データが不足している銘柄は、投資リスクの観点から自動的に **「評価対象外」** としています。
-        ただし、**「今は赤字だが来期は黒字予想」の場合は、自動的に『予想EPS』を使って理論株価を算出**しています。
+                    st.markdown("**検知シグナル:**")
+                    for s in signal.signals:
+                        st.markdown(f"- {s}")
+    else:
+        st.info("👆 「スキャン開始」ボタンを押して、ハゲタカの足跡を探索してください。")
+    
+    # 説明セクション
+    st.divider()
+    with st.expander("📚 ハゲタカスコープの仕組み"):
+        st.markdown("""
+        ### 🦅 3つの検知ロジック
+        
+        #### 1. 🥷 ステルス集積（最大35点）
+        目立たないように株を買い集めている動きを検知します。
+        - 出来高が徐々に増加しているか
+        - 価格変動が小さいのに出来高が増えているか
+        - 時価総額が買収適正サイズか
+        
+        #### 2. 🧱 板の違和感（最大35点）
+        気配値（板）に現れる不自然な並びや歪みを検知します。
+        - 需給の壁（価格帯別出来高の偏り）の位置
+        - 52週高値・安値との位置関係
+        - ボリンジャーバンドの位置
+        
+        #### 3. 🔥 出来高の臨界点（最大30点）
+        爆発直前に見られる取引量の異常な変化を検知します。
+        - 出来高倍率（20日平均比）
+        - 浮動株回転率
+        
+        ---
+        
+        ### 🎯 シグナルレベル
+        
+        | レベル | スコア | 意味 |
+        |--------|--------|------|
+        | 🔴 ロックオン | 70点以上 | 複数の兆候が重なった最注目銘柄 |
+        | 🟠 高警戒 | 50〜69点 | 要注目、監視リスト入り推奨 |
+        | 🟡 監視中 | 30〜49点 | 一部兆候あり、継続監視 |
+        | 🟢 平常 | 29点以下 | 現時点で特に異常なし |
         """)
 
+
 # ==========================================
-# タブ2: M&A予兆監視
+# タブ2: ハゲタカ監視（M&A予兆）
 # ==========================================
 with tab2:
-    st.subheader("🎯 M&A予兆監視")
-    
     st.markdown("""
-    **M&A予兆検知の仕組み**
-    
-    以下の要素を組み合わせて、M&A（完全子会社化・TOB・MBO等）の可能性をスコアリングします：
-    
-    | 要素 | 配点 | 検知内容 |
-    |------|------|----------|
-    | 📰 ニュース分析 | 最大40点 | 「TOB」「完全子会社化」等のキーワード検知 |
-    | 📈 出来高異常 | 最大30点 | 出来高急増、浮動株回転率の異常 |
-    | 💰 バリュエーション | 最大20点 | PBR低位、買収適正サイズ、割安度 |
-    | 📊 テクニカル | 最大10点 | RSI、移動平均線、ボリンジャーバンド |
-    """)
-    
-    st.divider()
+    <div class="hero-section">
+        <h2>📊 M&A予兆監視システム</h2>
+        <p>TOB・完全子会社化・MBOなど、M&Aの可能性が高い銘柄を自動検知</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     # 監視リスト管理
     st.markdown("### 📋 監視リスト")
@@ -1155,11 +612,11 @@ with tab2:
     
     col1, col2 = st.columns([3, 1])
     with col1:
-        new_codes = st.text_input("監視銘柄を追加（スペース区切り）", placeholder="例: 7203 9984 6758", key="add_watchlist")
+        new_codes = st.text_input("銘柄を追加", placeholder="例: 7203 9984 6758", key="add_watch")
     with col2:
-        if st.button("➕ 追加", key="add_btn"):
+        if st.button("➕ 追加", key="add_watch_btn", use_container_width=True):
             if new_codes:
-                new_list = sanitize_codes(new_codes.split())
+                new_list = [c.strip() for c in new_codes.split() if c.strip()]
                 for code in new_list:
                     if code not in watchlist:
                         watchlist.append(code)
@@ -1169,137 +626,111 @@ with tab2:
                 st.rerun()
     
     if watchlist:
-        st.markdown(f"**現在の監視銘柄**: {', '.join(watchlist)}")
+        st.markdown(f"**現在の監視銘柄** ({len(watchlist)}件): {', '.join(watchlist)}")
         
         col1, col2 = st.columns([1, 1])
         with col1:
-            if st.button("🔍 監視銘柄をM&A分析", type="primary", key="analyze_watchlist"):
+            if st.button("🔍 M&A分析実行", type="primary", key="ma_analyze"):
                 with st.spinner("🎯 M&A予兆分析中..."):
                     try:
-                        # まず基本データを取得
+                        import fair_value_calc_y4 as fv
                         bundle = fv.calc_genta_bundle(watchlist)
-                        
-                        # M&A分析
                         stock_data_list = [bundle.get(code, {}) for code in watchlist]
                         ma_results = ma.batch_analyze_ma(stock_data_list, with_news=True)
+                        st.session_state["ma_results"] = ma_results
                         
-                        st.session_state["watchlist_results"] = ma_results
-                        st.session_state["watchlist_bundle"] = bundle
-                        
-                        # 通知条件チェック
+                        # 通知
                         config = st.session_state.get("notification_config", notifier.NotificationConfig())
-                        if config.enabled:
-                            alert_scores = [s for s in ma_results if s.total_score >= config.min_score_threshold]
-                            if alert_scores:
-                                results = notifier.send_ma_alert(config, alert_scores)
-                                for r in results:
-                                    if r.success:
-                                        st.success(f"✅ {r.message}")
-                                    else:
-                                        st.warning(f"⚠️ {r.message}")
-                        
+                        if config.enabled and config.email_enabled:
+                            alerts = [s for s in ma_results if s.total_score >= config.min_score_threshold]
+                            if alerts:
+                                notifier.send_ma_alert(config, alerts)
+                                st.success(f"📧 {len(alerts)}件のアラートを送信しました")
                     except Exception as e:
                         st.error(f"エラー: {e}")
         
         with col2:
-            if st.button("🗑️ リストをクリア", key="clear_watchlist"):
+            if st.button("🗑️ リストをクリア", key="clear_watch"):
                 st.session_state["watchlist"] = []
                 notifier.save_watchlist([])
                 st.rerun()
-    else:
-        st.info("監視銘柄がありません。上のフォームから追加してください。")
-    
-    # 分析結果の表示
-    if "watchlist_results" in st.session_state and st.session_state["watchlist_results"]:
-        st.divider()
-        st.markdown("### 📊 M&A予兆分析結果")
         
-        results = st.session_state["watchlist_results"]
-        
-        for score in results:
-            # シグナルレベルに応じたスタイル
-            if score.signal_level == ma.MASignalLevel.CRITICAL:
-                st.markdown(f"""
-                <div class="ma-critical">
-                    <strong>🔴 {score.name}（{score.code}）- {score.total_score}点【緊急】</strong><br>
-                    {' '.join(score.reason_tags)}
-                </div>
-                """, unsafe_allow_html=True)
-            elif score.signal_level == ma.MASignalLevel.HIGH:
-                st.markdown(f"""
-                <div class="ma-high">
-                    <strong>🟠 {score.name}（{score.code}）- {score.total_score}点【高】</strong><br>
-                    {' '.join(score.reason_tags)}
-                </div>
-                """, unsafe_allow_html=True)
-            elif score.signal_level == ma.MASignalLevel.MEDIUM:
-                st.markdown(f"""
-                <div class="ma-medium">
-                    <strong>🟡 {score.name}（{score.code}）- {score.total_score}点【中】</strong><br>
-                    {' '.join(score.reason_tags)}
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="ma-low">
-                    <strong>🟢 {score.name}（{score.code}）- {score.total_score}点【低】</strong>
-                </div>
-                """, unsafe_allow_html=True)
+        # M&A分析結果表示
+        if "ma_results" in st.session_state and st.session_state["ma_results"]:
+            st.divider()
+            st.markdown("### 📊 M&A予兆分析結果")
             
-            # 詳細展開
-            with st.expander(f"📋 {score.code} の詳細を見る"):
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("ニュース", f"{score.news_score}/40点")
-                with col2:
-                    st.metric("出来高異常", f"{score.volume_score}/30点")
-                with col3:
-                    st.metric("バリュエーション", f"{score.valuation_score}/20点")
-                with col4:
-                    st.metric("テクニカル", f"{score.technical_score}/10点")
+            for score in st.session_state["ma_results"]:
+                if score.signal_level == ma.MASignalLevel.CRITICAL:
+                    card_class, badge_class = "lockon", "lockon"
+                elif score.signal_level == ma.MASignalLevel.HIGH:
+                    card_class, badge_class = "high", "high"
+                else:
+                    card_class, badge_class = "medium", "medium"
                 
-                if score.matched_keywords:
-                    st.markdown(f"**検知キーワード**: {', '.join(score.matched_keywords)}")
+                st.markdown(f"""
+                <div class="stock-card {card_class}">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                        <div>
+                            <span class="score-badge {badge_class}">{score.signal_level.value}</span>
+                            <span style="font-size: 1.2rem; font-weight: 700; margin-left: 0.5rem;">{score.name}</span>
+                            <span style="color: #666;">({score.code})</span>
+                        </div>
+                        <div style="font-size: 1.3rem; font-weight: 700; color: #C41E3A;">
+                            {score.total_score}点
+                        </div>
+                    </div>
+                    <div style="margin-top: 0.5rem;">
+                        {''.join([f'<span class="signal-tag">{t}</span>' for t in score.reason_tags[:5]])}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                if score.news_items:
-                    st.markdown("**📰 関連ニュース**")
-                    for news in score.news_items[:5]:
-                        st.markdown(f"- {news.title}")
-                
-                if score.exclusion_flags:
-                    st.warning(f"⚠️ M&A阻害要因検出: {', '.join(score.exclusion_flags)}")
+                with st.expander(f"📋 {score.code} 詳細"):
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("ニュース", f"{score.news_score}/40")
+                    col2.metric("出来高", f"{score.volume_score}/30")
+                    col3.metric("バリュエーション", f"{score.valuation_score}/20")
+                    col4.metric("テクニカル", f"{score.technical_score}/10")
+                    
+                    if score.news_items:
+                        st.markdown("**📰 関連ニュース**")
+                        for news in score.news_items[:3]:
+                            st.markdown(f"- {news.title}")
+    else:
+        st.info("監視銘柄を追加してください。")
+
 
 # ==========================================
 # タブ3: 通知設定
 # ==========================================
 with tab3:
-    st.subheader("🔔 通知設定")
-    
     st.markdown("""
-    M&A予兆が検知された際に、メールで通知を受け取ることができます。
-    """)
+    <div class="hero-section">
+        <h2>🔔 ロックオン通知設定</h2>
+        <p>条件合致の「標的」を検知した瞬間、スマホに通知が届きます</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     config = st.session_state.get("notification_config", notifier.NotificationConfig())
     
-    # 通知ON/OFF
     st.markdown("### ⚙️ 基本設定")
     enabled = st.toggle("通知を有効にする", value=config.enabled, key="notify_enabled")
     
-    min_score = st.slider("通知する最低スコア", 0, 100, config.min_score_threshold, key="min_score",
-                          help="このスコア以上の銘柄が検知された場合に通知されます")
+    min_score = st.slider(
+        "通知する最低スコア", 0, 100, config.min_score_threshold, 
+        key="min_score",
+        help="このスコア以上の銘柄が検知された場合に通知されます"
+    )
     
     st.divider()
     
-    # メール設定
     st.markdown("### 📧 メール通知設定")
     st.markdown("""
-    Gmailを使用する場合は、[アプリパスワード](https://myaccount.google.com/apppasswords)を設定してください。
-    ※通常のGmailパスワードでは送信できません。
-    
-    **設定手順（Gmail）:**
-    1. Googleアカウントの「セキュリティ」→「2段階認証」を有効化
-    2. 「アプリパスワード」を生成
-    3. 生成された16桁のパスワードを下の「SMTPパスワード」に入力
+    **Gmailの場合:**
+    1. [Googleアカウント](https://myaccount.google.com/)で2段階認証を有効化
+    2. [アプリパスワード](https://myaccount.google.com/apppasswords)を生成
+    3. 生成された16桁のパスワードを「SMTPパスワード」に入力
     """)
     
     email_enabled = st.toggle("メール通知を有効にする", value=config.email_enabled, key="email_enabled")
@@ -1310,24 +741,24 @@ with tab3:
             email_address = st.text_input("送信先メールアドレス", value=config.email_address, key="email_address")
             smtp_server = st.text_input("SMTPサーバー", value=config.smtp_server, key="smtp_server")
         with col2:
-            smtp_user = st.text_input("SMTPユーザー（送信元メールアドレス）", value=config.smtp_user, key="smtp_user")
-            smtp_password = st.text_input("SMTPパスワード（Gmailはアプリパスワード）", value=config.smtp_password, type="password", key="smtp_password")
+            smtp_user = st.text_input("SMTPユーザー", value=config.smtp_user, key="smtp_user")
+            smtp_password = st.text_input("SMTPパスワード", value=config.smtp_password, type="password", key="smtp_password")
         
         smtp_port = st.number_input("SMTPポート", value=config.smtp_port, key="smtp_port")
         
         if email_address and smtp_user and smtp_password:
-            if st.button("📧 メール通知テスト", key="test_email"):
+            if st.button("📧 テスト送信", key="test_email"):
                 result = notifier.send_email(
                     to_address=email_address,
-                    subject="🔔 源太AI ハゲタカSCOPE テスト通知",
-                    body="これはテスト通知です。\n\n通知設定が正常に機能しています。",
+                    subject="🎯 ハゲタカSCOPE テスト通知",
+                    body="ロックオン通知のテストです。\n\n設定が正常に機能しています。",
                     smtp_server=smtp_server,
                     smtp_port=int(smtp_port),
                     smtp_user=smtp_user,
                     smtp_password=smtp_password
                 )
                 if result.success:
-                    st.success("✅ メール通知テスト成功！")
+                    st.success("✅ テスト送信成功！")
                 else:
                     st.error(f"❌ {result.message}")
     else:
@@ -1339,7 +770,6 @@ with tab3:
     
     st.divider()
     
-    # 設定保存
     if st.button("💾 設定を保存", type="primary", key="save_config"):
         new_config = notifier.NotificationConfig(
             enabled=enabled,
@@ -1358,123 +788,28 @@ with tab3:
         st.session_state["notification_config"] = new_config
         st.success("✅ 設定を保存しました！")
 
-# -----------------------------
-# ★豆知識コーナー（完全復活・新指標対応）
-# -----------------------------
+
+# ==========================================
+# フッター
+# ==========================================
 st.divider()
-st.subheader("📚 投資の豆知識・用語解説")
+st.markdown("""
+<div style="text-align: center; color: #888; font-size: 0.85rem; padding: 1rem;">
+    ⚠️ 投資は自己責任でお願いします。本ツールは情報提供を目的としており、投資助言ではありません。<br>
+    © 先乗り株カレッジ - 源太AI ハゲタカSCOPE
+</div>
+""", unsafe_allow_html=True)
 
-with st.expander("📚 【豆知識】理論株価の計算根拠（グレアム数）とは？"):
-    st.markdown("""
-    ### 🧙‍♂️ "投資の神様"の師匠が考案した「割安株」の黄金式
-    このツールで算出している理論株価は、**「グレアム数」** という計算式をベースにしています。
-    これは、あの世界最強の投資家 **ウォーレン・バフェットの師匠** であり、「バリュー投資の父」と呼ばれる **ベンジャミン・グレアム** が考案した由緒ある指標です。
 
-    ### 💡 何がすごいの？
-    多くの投資家は「利益（PER）」だけで株を見がちですが、グレアム数は **「企業の利益（稼ぐ力）」** と **「純資産（持っている財産）」** の両面から、その企業が本来持っている **「真の実力値（適正価格）」** を厳しく割り出します。
-
-    **今の株価 ＜ 理論株価（グレアム数）** となっていれば、それは **「実力よりも過小評価されている（バーゲンセール中）」** という強力なサインになります。
-    """)
-
-with st.expander("🚀 【注目】なぜ「事業の勢い（売上成長率）」を見るの？"):
-    st.markdown("""
-    ### 📈 株価を押し上げる"真のエンジン"は売上にあり！
-    「利益」は経費削減などで一時的に作れますが、**「売上」** の伸びだけは誤魔化せません。売上が伸びているということは、**「その会社の商品が世の中でバカ売れしている」** という最強の証拠だからです。
-
-    ### 📊 成長スピードの目安（より厳しめのプロ基準）
-    - **🚀 +30% 以上： 【超・急成長】**
-      驚異的な伸びです。将来のスター株候補の可能性がありますが、期待先行で株価が乱高下するリスクも高くなります。
-    - **🏃 +10% 〜 +30%： 【成長軌道】**
-      安定してビジネスが拡大しています。安心して見ていられる優良企業のラインです。
-    - **🚶 0% 〜 +10%： 【安定・成熟】**
-      急成長はしていませんが、堅実に稼いでいます。配当狙いの銘柄に多いです。
-    - **📉 マイナス： 【衰退・縮小】**
-      去年より売れていません。ビジネスモデルの転換期か、斜陽産業の可能性があります。
-
-    ### 💡 分析のポイント 「赤字 × 急成長」の判断について
-    本来、赤字企業は投資対象外ですが、「事業の勢い」が **+30%** を超えている場合は、**「将来のシェア獲得のために、あえて広告や研究に大金を投じている（＝今は赤字を掘っている）」** だけの可能性があります。
-    ただし、黒字化できないまま倒産するリスクもあるため、上級者向けの「ハイリスク・ハイリターン枠」として慎重に見る必要があります。
-    """)
-
-with st.expander("🌊 ファンドや機関（大口）の\"動き\"を検知する先乗り指標"):
-    st.markdown("""
-    時価総額や出来高の異常検知を組み合わせ、**「大口投資家が仕掛けやすい（買収や買い上げを狙いやすい）条件」** が揃っているかを%で表示します。
-
-    ### 🔍 判定ロジック
-    先乗り（先回り）理論、季節性、対角性、テーマ性、ファンド動向、アクティビスト検知、企業成長性など、ニッチ性、株大量保有条件、あらゆる大口介入シグナルを自動で検出する独自ロジックを各項目ごとにポイント制にしてパーセンテージを算出する次世代の指数
-
-    ### 🎯 ゴールデンゾーン（時価総額 500億〜3000億円）
-    機関投資家等が一番動きやすく、TOB（買収）のターゲットにもなりやすい「おいしい規模感」。
-
-    ### 📉 PBR 1倍割れ（バーゲンセール）
-    「会社を解散して現金を配った方がマシ」という超割安状態。買収の標的にされやすい。
-
-    ### ⚡ 出来高急増（ボリュームスパイク）
-    今日の出来高が、普段の平均より2倍以上ある場合、裏で何かが起きている（誰かが集めている）可能性大！
-    **独自の先乗り（先回り）法を完全数値化に成功！ 🔥 80%以上は「激アツ」**
-    何らかの材料（ニュース）が出る前触れか、水面下で大口が集めている可能性があります。 大口の買い上げこそ暴騰のチャンスです。この指標もしっかりご確認ください。
-    """)
-
-with st.expander("🌪️ 【新指標】「浮動株・激動率」の読み方"):
-    st.markdown("""
-    ### 🌪️ 市場から株が消える前兆を見逃すな！
-    「出来高」が多いだけでは意味がありません。重要なのは**「市場で実際に売買できる株（浮動株）」がどれだけ回転したか**です。
-
-    - **🌪️ 10%以上：【激震】**
-      たった1日で浮動株の1割以上が持ち主を変えた異常事態。**「大口が根こそぎ集めている」**か、とんでもない材料が出た可能性があります。
-    - **⚡ 5%〜10%：【活況】**
-      かなり注目されています。デイトレーダーや短期筋が集まっています。
-    - **☁ 1%未満：【閑散】**
-      誰も見ていません。
-    """)
-
-with st.expander("🔥 【新指標】「異常・着火倍率」の読み方"):
-    st.markdown("""
-    ### 🔥 平凡な日常からの「突然変異」を検知！
-    「過去20日間の平均出来高」と「今日の出来高」を比較し、**静けさを破る爆発**を捉えます。
-
-    - **🔥 5倍以上：【緊急事態】**
-      普段の5倍以上の注文が殺到しています。何かとんでもないことが起きています（ニュース、仕手化、リーク等）。
-    - **🚀 3倍〜5倍：【着火】**
-      初動の可能性が高いゾーン。今まで眠っていた株が目覚めた合図です。
-    - **⚡ 2倍〜3倍：【予兆】**
-      ざわついています。監視リストに入れるべきタイミングです。
-    """)
-
-with st.expander("🎯 【新機能】M&A予兆検知の仕組み"):
-    st.markdown("""
-    ### 🎯 M&A予兆検知とは？
-    「親会社による完全子会社化」「TOB（株式公開買付）」「MBO（経営陣による買収）」などの可能性が高い銘柄を自動検知する機能です。
-
-    ### 📊 スコアリング要素
-    | 要素 | 配点 | 内容 |
-    |------|------|------|
-    | **ニュース分析** | 最大40点 | Yahoo!ニュースから「TOB」「完全子会社化」「MBO」等のキーワードを検知 |
-    | **出来高異常** | 最大30点 | 出来高急増（着火倍率）、浮動株回転率の異常を検知 |
-    | **バリュエーション** | 最大20点 | PBR低位、買収適正サイズ（時価総額）、理論株価との乖離 |
-    | **テクニカル** | 最大10点 | RSI・移動平均線・ボリンジャーバンドの総合判定 |
-
-    ### 🚨 シグナルレベル
-    - 🔴 **緊急（70点以上）**: M&A関連ニュースが検知されています。要警戒！
-    - 🟠 **高（50〜69点）**: 複数の条件が重なっています。注視推奨。
-    - 🟡 **中（30〜49点）**: 一部シグナルあり。継続監視を。
-    - 🟢 **低（15〜29点）**: 現時点では目立ったシグナルなし。
-    - ⚪ **なし（14点以下）**: M&A兆候は検出されていません。
-
-    ### ⚠️ 減点要因
-    「大規模自社株買い発表」「買収防衛策導入」などのニュースが検知された場合は、M&Aの障害となるため大幅減点されます。
-    """)
-
-# -----------------------------
-# 🔧 管理者メニュー
-# -----------------------------
-st.divider()
-with st.expander("🔧 管理者専用メニュー"):
-    admin_input = st.text_input("管理者コード", type="password", key="admin_pass_bottom")
+# ==========================================
+# 管理者メニュー
+# ==========================================
+with st.expander("🔧 管理者メニュー"):
+    admin_input = st.text_input("管理者コード", type="password", key="admin_pass")
     if admin_input == ADMIN_CODE:
         st.success("認証OK")
-        if st.button("🗑️ キャッシュ全削除", type="primary"):
+        if st.button("🗑️ キャッシュ削除"):
             st.cache_data.clear()
-            st.success("削除完了！再読み込みします...")
+            st.success("削除完了！")
             time.sleep(1)
             st.rerun()
