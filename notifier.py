@@ -334,8 +334,20 @@ def send_ma_alert(
 # 設定の保存・読み込み
 # ==========================================
 
-def save_notification_config(config: NotificationConfig, filepath: str = "notification_config.json"):
+# データディレクトリ
+DATA_DIR = "data"
+
+def _ensure_data_dir():
+    """データディレクトリを作成"""
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+
+def save_notification_config(config: NotificationConfig, filepath: str = None):
     """通知設定をJSONファイルに保存"""
+    _ensure_data_dir()
+    if filepath is None:
+        filepath = os.path.join(DATA_DIR, "notification_config.json")
+    
     data = {
         "enabled": config.enabled,
         "email_enabled": config.email_enabled,
@@ -354,8 +366,11 @@ def save_notification_config(config: NotificationConfig, filepath: str = "notifi
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def load_notification_config(filepath: str = "notification_config.json") -> NotificationConfig:
+def load_notification_config(filepath: str = None) -> NotificationConfig:
     """通知設定をJSONファイルから読み込み"""
+    if filepath is None:
+        filepath = os.path.join(DATA_DIR, "notification_config.json")
+    
     if not os.path.exists(filepath):
         return NotificationConfig()
     
@@ -384,20 +399,30 @@ def load_notification_config(filepath: str = "notification_config.json") -> Noti
 # 監視リスト管理
 # ==========================================
 
-def save_watchlist(codes: List[str], filepath: str = "ma_watchlist.json"):
+def save_watchlist(codes: List[str], filepath: str = None):
     """監視リストを保存"""
+    _ensure_data_dir()
+    if filepath is None:
+        filepath = os.path.join(DATA_DIR, "watchlist.json")
+    
     with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump({"codes": codes, "updated_at": datetime.now().isoformat()}, f)
+        json.dump(codes, f, ensure_ascii=False, indent=2)
 
 
-def load_watchlist(filepath: str = "ma_watchlist.json") -> List[str]:
+def load_watchlist(filepath: str = None) -> List[str]:
     """監視リストを読み込み"""
+    if filepath is None:
+        filepath = os.path.join(DATA_DIR, "watchlist.json")
+    
     if not os.path.exists(filepath):
         return []
     
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
+        # 互換性: 配列またはオブジェクト両方に対応
+        if isinstance(data, list):
+            return data
         return data.get("codes", [])
     except Exception:
         return []
