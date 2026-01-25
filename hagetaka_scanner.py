@@ -1,19 +1,21 @@
 """
-ハゲタカスコープ - 全銘柄スキャン＆検知エンジン
-約3,800銘柄から「ハゲタカの足跡」を自動検知する
+ハゲタカスコープ - 全銘柄スキャン＆検知エンジン v2
+高速化 + 二段階スコアリング（ゲート→スコア）
 """
 
 from __future__ import annotations
 import time
 import random
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests
+import streamlit as st
 
 
 class SignalLevel(Enum):
@@ -50,9 +52,9 @@ SCAN_OPTIONS = {
     ScanMode.QUICK: ScanOption(
         mode=ScanMode.QUICK,
         label="⚡ クイックスキャン（推奨）",
-        description="出来高急増銘柄を優先スキャン",
-        estimated_count=300,
-        estimated_time="約3〜5分",
+        description="出来高急増銘柄を高速スキャン",
+        estimated_count=100,
+        estimated_time="約30秒〜1分",
         warning=None
     ),
     ScanMode.PRIME: ScanOption(
@@ -60,7 +62,7 @@ SCAN_OPTIONS = {
         label="🏢 プライム市場",
         description="東証プライム上場銘柄",
         estimated_count=1800,
-        estimated_time="約15〜20分",
+        estimated_time="約5〜8分",
         warning="時間がかかります"
     ),
     ScanMode.STANDARD: ScanOption(
@@ -68,7 +70,7 @@ SCAN_OPTIONS = {
         label="🏬 スタンダード市場",
         description="東証スタンダード上場銘柄",
         estimated_count=1400,
-        estimated_time="約12〜15分",
+        estimated_time="約4〜6分",
         warning="時間がかかります"
     ),
     ScanMode.GROWTH: ScanOption(
@@ -76,7 +78,7 @@ SCAN_OPTIONS = {
         label="🌱 グロース市場",
         description="東証グロース上場銘柄",
         estimated_count=500,
-        estimated_time="約5〜8分",
+        estimated_time="約2〜3分",
         warning=None
     ),
     ScanMode.ALL: ScanOption(
@@ -84,7 +86,7 @@ SCAN_OPTIONS = {
         label="🌐 全銘柄スキャン",
         description="日本株全銘柄（約3,800社）",
         estimated_count=3800,
-        estimated_time="約45分〜1時間",
+        estimated_time="約15〜20分",
         warning="⚠️ 非常に時間がかかります。自動監視（GitHub Actions）での実行を推奨します。"
     ),
     ScanMode.CUSTOM: ScanOption(
@@ -95,6 +97,24 @@ SCAN_OPTIONS = {
         estimated_time="入力数による",
         warning=None
     ),
+}
+
+
+# ==========================================
+# ゲート条件（入口フィルター）
+# ==========================================
+GATE_CONDITIONS = {
+    "min_trading_value": 3e8,     # 売買代金20日平均: 3億以上
+    "min_volume_ratio": 1.3,      # 出来高倍率: 1.3倍以上
+    "min_price": 300,             # 株価: 300円以上（低位株除外）
+}
+
+# ロックオン設定
+LOCKON_SETTINGS = {
+    "min_score": 60,              # ロックオン最低スコア
+    "max_lockon_count": 5,        # ロックオン上限数
+    "high_alert_score": 45,       # 高警戒スコア
+    "medium_score": 30,           # 監視中スコア
 }
 
 
@@ -111,6 +131,9 @@ class HagetakaSignal:
     board_score: int = 0        # 板の違和感スコア (0-35)
     volume_score: int = 0       # 出来高臨界点スコア (0-30)
     
+    # ボーナススコア
+    bonus_score: int = 0
+    
     # 検知理由
     signals: List[str] = field(default_factory=list)
     
@@ -122,6 +145,7 @@ class HagetakaSignal:
     volume_ratio: float = 0     # 出来高倍率
     turnover_pct: float = 0     # 浮動株回転率
     market_cap: float = 0       # 時価総額
+    trading_value: float = 0    # 売買代金
     
     # M&Aスコア（既存機能との連携用）
     ma_score: int = 0
@@ -130,178 +154,27 @@ class HagetakaSignal:
     detected_at: datetime = field(default_factory=datetime.now)
 
 
-def fetch_jpx_stock_list() -> pd.DataFrame:
+# ==========================================
+# キャッシュ付きデータ取得
+# ==========================================
+@st.cache_data(ttl=300, show_spinner=False)  # 5分キャッシュ
+def get_stock_data_cached(code: str) -> Optional[Dict[str, Any]]:
     """
-    JPX（日本取引所）から全銘柄リストを取得
+    銘柄データを取得（キャッシュ付き）
     """
-    url = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
-    
-    try:
-        df = pd.read_excel(url, dtype={'コード': str})
-        # 必要なカラムのみ抽出
-        df = df[['コード', '銘柄名', '市場・商品区分']].copy()
-        df.columns = ['code', 'name', 'market']
-        df['code'] = df['code'].astype(str).str.strip()
-        return df
-    except Exception as e:
-        print(f"JPX銘柄リスト取得エラー: {e}")
-        return pd.DataFrame()
+    return _fetch_stock_data(code)
 
 
-def get_stocks_by_market(market: str) -> List[str]:
+def _fetch_stock_data(code: str) -> Optional[Dict[str, Any]]:
     """
-    市場別に銘柄コードを取得
-    """
-    df = fetch_jpx_stock_list()
-    if df.empty:
-        return get_fallback_stocks(market)
-    
-    if market == "prime":
-        filtered = df[df['market'].str.contains('プライム', na=False)]
-    elif market == "standard":
-        filtered = df[df['market'].str.contains('スタンダード', na=False)]
-    elif market == "growth":
-        filtered = df[df['market'].str.contains('グロース', na=False)]
-    else:
-        filtered = df
-    
-    return filtered['code'].tolist()
-
-
-def get_fallback_stocks(market: str = "all") -> List[str]:
-    """
-    JPX取得失敗時のフォールバック銘柄リスト
-    """
-    # 主要銘柄のハードコードリスト（フォールバック用）
-    prime_stocks = [
-        "7203", "9984", "6758", "8306", "9432", "6861", "7267", "4502", "6501", "8058",
-        "9433", "6902", "7751", "4063", "8316", "6098", "9022", "8411", "4568", "6981",
-        "7974", "6367", "6594", "8035", "4519", "6273", "9983", "8031", "6954", "7741",
-        "4661", "6503", "8766", "9020", "6702", "8801", "4503", "6971", "7269", "8802",
-        "3382", "8267", "9101", "4452", "6301", "7733", "4901", "8591", "6326", "5401",
-    ]
-    
-    growth_stocks = [
-        "4385", "4436", "6095", "7342", "4480", "6560", "3697", "4478", "4449", "7342",
-        "4477", "4071", "4485", "7095", "4053", "4168", "4054", "4484", "4491", "4446",
-    ]
-    
-    standard_stocks = [
-        "3092", "6532", "2413", "3064", "4307", "6035", "7148", "3688", "4384", "6184",
-        "7071", "9434", "1332", "1333", "1605", "1721", "1801", "1802", "1803", "1808",
-    ]
-    
-    if market == "prime":
-        return prime_stocks
-    elif market == "growth":
-        return growth_stocks
-    elif market == "standard":
-        return standard_stocks
-    else:
-        return prime_stocks + growth_stocks + standard_stocks
-
-
-def get_volume_ranking_stocks(top_n: int = 300) -> List[str]:
-    """
-    出来高ランキング上位銘柄を取得（クイックスキャン用）
-    Yahoo Finance Japanから取得を試み、失敗時はフォールバック
-    """
-    try:
-        # 複数のソースから出来高上位銘柄を取得
-        # 方法1: 主要指数構成銘柄 + 最近の出来高上位
-        
-        # 日経225構成銘柄（出来高が多い傾向）
-        nikkei225 = [
-            "1332", "1333", "1605", "1721", "1801", "1802", "1803", "1808", "1812", "1925",
-            "1928", "1963", "2002", "2269", "2282", "2413", "2432", "2501", "2502", "2503",
-            "2531", "2768", "2801", "2802", "2871", "2914", "3086", "3099", "3101", "3103",
-            "3105", "3107", "3289", "3382", "3401", "3402", "3405", "3407", "3436", "3861",
-            "3863", "4004", "4005", "4021", "4042", "4043", "4061", "4063", "4151", "4183",
-            "4188", "4208", "4272", "4324", "4452", "4502", "4503", "4506", "4507", "4519",
-            "4523", "4543", "4568", "4578", "4661", "4689", "4704", "4751", "4755", "4901",
-            "4902", "4911", "5019", "5020", "5101", "5108", "5201", "5202", "5214", "5232",
-            "5233", "5301", "5332", "5333", "5401", "5406", "5411", "5413", "5541", "5631",
-            "5703", "5706", "5707", "5711", "5713", "5714", "5801", "5802", "5803", "5901",
-            "6098", "6103", "6113", "6141", "6178", "6273", "6301", "6302", "6305", "6326",
-            "6361", "6367", "6471", "6472", "6473", "6479", "6501", "6503", "6504", "6506",
-            "6645", "6674", "6701", "6702", "6703", "6724", "6752", "6753", "6758", "6762",
-            "6770", "6841", "6857", "6861", "6902", "6952", "6954", "6971", "6976", "6981",
-            "7003", "7004", "7011", "7012", "7013", "7186", "7201", "7202", "7203", "7205",
-            "7211", "7261", "7267", "7269", "7270", "7272", "7731", "7733", "7741", "7751",
-            "7752", "7762", "7832", "7911", "7912", "7951", "7974", "8001", "8002", "8015",
-            "8028", "8031", "8035", "8053", "8058", "8233", "8252", "8253", "8267", "8303",
-            "8304", "8306", "8308", "8309", "8316", "8331", "8354", "8355", "8411", "8601",
-            "8604", "8628", "8630", "8697", "8725", "8750", "8766", "8795", "8801", "8802",
-            "8804", "8830", "9001", "9005", "9007", "9008", "9009", "9020", "9021", "9022",
-            "9062", "9064", "9101", "9104", "9107", "9201", "9202", "9301", "9412", "9432",
-            "9433", "9434", "9501", "9502", "9503", "9531", "9532", "9602", "9613", "9735",
-            "9766", "9983", "9984",
-        ]
-        
-        # TOPIX Core30 + 出来高が多い人気銘柄を追加
-        popular_stocks = [
-            "6758", "7203", "9984", "8306", "9432", "6861", "7267", "4502", "8058", "9433",
-            "6501", "7751", "4063", "8316", "7974", "6367", "8035", "9983", "6902", "4519",
-            "6954", "7741", "6273", "8031", "4661", "6503", "8766", "9020", "6702", "8801",
-            "3382", "8267", "9101", "4452", "6301", "7733", "4901", "8591", "5401", "6326",
-        ]
-        
-        # グロース市場の人気銘柄（ボラティリティが高い）
-        growth_popular = [
-            "4385", "4436", "4478", "4477", "4071", "4485", "7095", "4168", "4054", "4484",
-            "4491", "4446", "4053", "4449", "6095", "7342", "4480", "6560", "3697", "4481",
-        ]
-        
-        # 統合して重複除去
-        all_candidates = list(dict.fromkeys(nikkei225 + popular_stocks + growth_popular))
-        
-        return all_candidates[:top_n]
-        
-    except Exception as e:
-        print(f"出来高ランキング取得エラー: {e}")
-        return get_fallback_stocks("all")[:top_n]
-
-
-def get_all_japan_stocks() -> List[str]:
-    """
-    日本の全上場銘柄コードを取得
-    """
-    df = fetch_jpx_stock_list()
-    if df.empty:
-        return get_fallback_stocks("all")
-    return df['code'].tolist()
-
-
-def get_scan_targets(mode: ScanMode, custom_codes: List[str] = None) -> List[str]:
-    """
-    スキャンモードに応じた銘柄リストを取得
-    """
-    if mode == ScanMode.QUICK:
-        return get_volume_ranking_stocks(300)
-    elif mode == ScanMode.PRIME:
-        return get_stocks_by_market("prime")
-    elif mode == ScanMode.STANDARD:
-        return get_stocks_by_market("standard")
-    elif mode == ScanMode.GROWTH:
-        return get_stocks_by_market("growth")
-    elif mode == ScanMode.ALL:
-        return get_all_japan_stocks()
-    elif mode == ScanMode.CUSTOM:
-        return custom_codes or []
-    else:
-        return get_volume_ranking_stocks(300)
-
-
-def get_stock_data(code: str) -> Optional[Dict[str, Any]]:
-    """
-    銘柄データを取得
+    銘柄データを取得（内部実装）
     """
     try:
         ticker = yf.Ticker(f"{code}.T")
         
-        # 株価履歴（6ヶ月）
-        hist = ticker.history(period="6mo")
-        if hist.empty:
+        # 株価履歴（1ヶ月で十分 - 高速化）
+        hist = ticker.history(period="1mo")
+        if hist.empty or len(hist) < 5:
             return None
         
         # 基本情報
@@ -313,28 +186,30 @@ def get_stock_data(code: str) -> Optional[Dict[str, Any]]:
         
         # 出来高データ
         current_volume = int(latest['Volume'])
-        avg_volume_20d = int(hist['Volume'].tail(20).mean()) if len(hist) >= 20 else current_volume
-        avg_volume_5d = int(hist['Volume'].tail(5).mean()) if len(hist) >= 5 else current_volume
+        avg_volume_20d = int(hist['Volume'].mean()) if len(hist) >= 5 else current_volume
         
         # 出来高倍率
         volume_ratio = current_volume / avg_volume_20d if avg_volume_20d > 0 else 1.0
         
+        # 売買代金
+        trading_value = float(latest['Close']) * current_volume
+        avg_trading_value = float(hist['Close'] * hist['Volume']).mean()
+        
         # 浮動株回転率（推定）
         shares_outstanding = info.get('sharesOutstanding', 0)
-        float_shares = shares_outstanding * 0.3  # 浮動株比率30%と仮定
+        float_shares = shares_outstanding * 0.3 if shares_outstanding else current_volume * 10
         turnover_pct = (current_volume / float_shares * 100) if float_shares > 0 else 0
         
         # 5日間の出来高トレンド
         if len(hist) >= 10:
             vol_5d_recent = hist['Volume'].tail(5).mean()
-            vol_5d_prev = hist['Volume'].tail(10).head(5).mean()
+            vol_5d_prev = hist['Volume'].iloc[-10:-5].mean() if len(hist) >= 10 else vol_5d_recent
             volume_trend = vol_5d_recent / vol_5d_prev if vol_5d_prev > 0 else 1.0
         else:
             volume_trend = 1.0
         
-        # 価格帯別出来高（板の違和感検知用）
-        price_levels = pd.cut(hist['Close'], bins=20)
-        volume_by_price = hist.groupby(price_levels, observed=False)['Volume'].sum()
+        # 市場時価総額
+        market_cap = info.get('marketCap', 0)
         
         return {
             "code": code,
@@ -344,208 +219,335 @@ def get_stock_data(code: str) -> Optional[Dict[str, Any]]:
             "change_pct": ((latest['Close'] - prev['Close']) / prev['Close'] * 100) if prev['Close'] > 0 else 0,
             "volume": current_volume,
             "avg_volume_20d": avg_volume_20d,
-            "avg_volume_5d": avg_volume_5d,
             "volume_ratio": volume_ratio,
-            "volume_trend": volume_trend,  # 5日間の出来高トレンド
+            "volume_trend": volume_trend,
             "turnover_pct": turnover_pct,
-            "market_cap": info.get('marketCap', 0),
+            "market_cap": market_cap,
+            "trading_value": trading_value,
+            "avg_trading_value": avg_trading_value,
             "float_shares": float_shares,
             "hist": hist,
-            "volume_by_price": volume_by_price,
-            "high_52w": info.get('fiftyTwoWeekHigh', 0),
-            "low_52w": info.get('fiftyTwoWeekLow', 0),
+            "high_20d": hist['High'].max(),
+            "low_20d": hist['Low'].min(),
         }
         
     except Exception as e:
-        print(f"Error getting data for {code}: {e}")
         return None
 
 
-def calculate_stealth_score(data: Dict[str, Any]) -> tuple[int, List[str]]:
+# ==========================================
+# ゲート判定（高速フィルタリング）
+# ==========================================
+def pass_gate(data: Dict[str, Any]) -> bool:
     """
-    ステルス集積スコアを計算（最大35点）
-    - 出来高が徐々に増加している
-    - 大きな値動きなく株が集められている
+    ゲート条件をパスするかチェック（両方満たす）
     """
-    score = 0
+    if data is None:
+        return False
+    
+    # 売買代金チェック
+    avg_trading_value = data.get("avg_trading_value", 0)
+    if avg_trading_value < GATE_CONDITIONS["min_trading_value"]:
+        return False
+    
+    # 出来高倍率チェック
+    volume_ratio = data.get("volume_ratio", 0)
+    if volume_ratio < GATE_CONDITIONS["min_volume_ratio"]:
+        return False
+    
+    # 株価チェック
+    price = data.get("price", 0)
+    if price < GATE_CONDITIONS["min_price"]:
+        return False
+    
+    return True
+
+
+# ==========================================
+# 新スコアリング（Best 2 of 3方式）
+# ==========================================
+def calculate_stealth_score_v2(data: Dict[str, Any]) -> Tuple[int, List[str], List[int]]:
+    """
+    ステルス集積スコア v2（Best 2 of 3）
+    最大35点
+    """
+    scores = []
     signals = []
     
-    # 1. 出来高トレンド（最大15点）
+    # 条件1: 出来高トレンド（最大15点）
     volume_trend = data.get("volume_trend", 1.0)
-    if volume_trend >= 2.0:
-        score += 15
-        signals.append("📈 出来高が5日前比2倍以上に増加")
-    elif volume_trend >= 1.5:
-        score += 10
-        signals.append("📈 出来高が5日前比1.5倍に増加")
+    if volume_trend >= 1.8:
+        scores.append(15)
+        signals.append("📈 出来高が5日前比1.8倍以上に増加")
+    elif volume_trend >= 1.4:
+        scores.append(10)
+        signals.append("📈 出来高が5日前比1.4倍に増加")
     elif volume_trend >= 1.2:
-        score += 5
+        scores.append(5)
         signals.append("📈 出来高が緩やかに増加傾向")
+    else:
+        scores.append(0)
     
-    # 2. 価格変動が小さいのに出来高増加（最大10点）
+    # 条件2: 値動き小×出来高増（最大12点）
     change_pct = abs(data.get("change_pct", 0))
     volume_ratio = data.get("volume_ratio", 1.0)
     
-    if change_pct < 2.0 and volume_ratio >= 2.0:
-        score += 10
+    if change_pct < 2.0 and volume_ratio >= 1.8:
+        scores.append(12)
         signals.append("🥷 値動き小×出来高増＝ステルス集積の可能性")
     elif change_pct < 3.0 and volume_ratio >= 1.5:
-        score += 5
+        scores.append(8)
         signals.append("🥷 目立たない買い集めの兆候")
+    elif volume_ratio >= 1.3:
+        scores.append(4)
+        signals.append("🥷 出来高やや増加")
+    else:
+        scores.append(0)
     
-    # 3. 時価総額が買収適正サイズ（最大10点）
+    # 条件3: 時価総額が買収適正サイズ（最大10点）
     market_cap = data.get("market_cap", 0)
     if market_cap > 0:
-        market_cap_oku = market_cap / 1e8  # 億円換算
+        market_cap_oku = market_cap / 1e8
         if 300 <= market_cap_oku <= 3000:
-            score += 10
+            scores.append(10)
             signals.append("🎯 時価総額がハゲタカ好適サイズ")
         elif 100 <= market_cap_oku < 300 or 3000 < market_cap_oku <= 5000:
-            score += 5
+            scores.append(6)
             signals.append("🎯 時価総額が買収対象圏内")
+        else:
+            scores.append(0)
+    else:
+        scores.append(0)
     
-    return min(score, 35), signals
+    # Best 2 of 3
+    sorted_scores = sorted(scores, reverse=True)
+    total = sum(sorted_scores[:2])
+    active_signals = [s for s, sc in zip(signals, scores) if sc > 0]
+    
+    return min(total, 35), active_signals, scores
 
 
-def calculate_board_score(data: Dict[str, Any]) -> tuple[int, List[str]]:
+def calculate_board_score_v2(data: Dict[str, Any]) -> Tuple[int, List[str], List[int]]:
     """
-    板の違和感スコアを計算（最大35点）
-    - 価格帯別出来高の偏り
-    - 需給の壁の存在
+    板の違和感スコア v2（Best 2 of 3）
+    最大35点
     """
-    score = 0
+    scores = []
     signals = []
     
     hist = data.get("hist")
-    if hist is None or hist.empty:
-        return 0, []
-    
     price = data.get("price", 0)
-    if price <= 0:
-        return 0, []
     
-    # 1. 現在値付近に出来高の壁があるか（最大15点）
-    volume_by_price = data.get("volume_by_price")
-    if volume_by_price is not None and not volume_by_price.empty:
-        # 最大出来高の価格帯を特定
-        max_vol_idx = volume_by_price.idxmax()
-        if max_vol_idx is not None:
-            try:
-                wall_price = max_vol_idx.mid
-                price_diff_pct = abs(price - wall_price) / price * 100
-                
-                if price_diff_pct < 5:
-                    score += 15
-                    signals.append("🧱 需給の壁で激戦中（ブレイク間近）")
-                elif price_diff_pct < 10:
-                    score += 10
-                    signals.append("🧱 需給の壁が近い（要注目）")
-            except:
-                pass
+    if hist is None or hist.empty or price <= 0:
+        return 0, [], [0, 0, 0]
     
-    # 2. 52週高値・安値との位置関係（最大10点）
-    high_52w = data.get("high_52w", 0)
-    low_52w = data.get("low_52w", 0)
+    # 条件1: 20日高値/安値との位置関係（最大15点）
+    high_20d = data.get("high_20d", price)
+    low_20d = data.get("low_20d", price)
     
-    if high_52w > 0 and low_52w > 0:
-        range_52w = high_52w - low_52w
-        if range_52w > 0:
-            position = (price - low_52w) / range_52w
-            
-            if position <= 0.3:
-                score += 10
-                signals.append("📉 52週安値圏（底値買い狙い）")
-            elif position >= 0.9:
-                score += 5
-                signals.append("📈 52週高値圏（ブレイク狙い）")
+    if high_20d > low_20d:
+        position = (price - low_20d) / (high_20d - low_20d)
+        
+        if position <= 0.2:
+            scores.append(15)
+            signals.append("📉 20日安値圏（底値買い狙い）")
+        elif position >= 0.9:
+            scores.append(12)
+            signals.append("📈 20日高値ブレイク狙い")
+        elif position <= 0.4:
+            scores.append(8)
+            signals.append("📉 安値圏で推移")
+        else:
+            scores.append(0)
+    else:
+        scores.append(0)
     
-    # 3. ボリンジャーバンドの位置（最大10点）
+    # 条件2: ボリンジャーバンドの位置（最大12点）
     if len(hist) >= 20:
         close = hist['Close']
         sma20 = close.rolling(20).mean().iloc[-1]
         std20 = close.rolling(20).std().iloc[-1]
         
-        upper_band = sma20 + 2 * std20
-        lower_band = sma20 - 2 * std20
-        
-        if price <= lower_band:
-            score += 10
-            signals.append("📊 ボリンジャー下限（売られすぎ）")
-        elif price >= upper_band:
-            score += 5
-            signals.append("📊 ボリンジャー上限（勢いあり）")
+        if pd.notna(sma20) and pd.notna(std20) and std20 > 0:
+            upper_band = sma20 + 2 * std20
+            lower_band = sma20 - 2 * std20
+            
+            if price <= lower_band:
+                scores.append(12)
+                signals.append("📊 ボリンジャー下限（売られすぎ）")
+            elif price >= upper_band:
+                scores.append(10)
+                signals.append("📊 ボリンジャー上限（勢いあり）")
+            elif price <= sma20 - std20:
+                scores.append(6)
+                signals.append("📊 -1σ圏内")
+            else:
+                scores.append(0)
+        else:
+            scores.append(0)
+    else:
+        scores.append(0)
     
-    return min(score, 35), signals
+    # 条件3: 移動平均との乖離（最大10点）
+    if len(hist) >= 5:
+        sma5 = hist['Close'].rolling(5).mean().iloc[-1]
+        if pd.notna(sma5) and sma5 > 0:
+            deviation = (price - sma5) / sma5 * 100
+            
+            if deviation >= 5:
+                scores.append(10)
+                signals.append("📈 5日線を大きく上回る")
+            elif deviation <= -5:
+                scores.append(10)
+                signals.append("📉 5日線を大きく下回る（反発狙い）")
+            elif abs(deviation) >= 2:
+                scores.append(5)
+                signals.append("📊 5日線から乖離")
+            else:
+                scores.append(0)
+        else:
+            scores.append(0)
+    else:
+        scores.append(0)
+    
+    # Best 2 of 3
+    sorted_scores = sorted(scores, reverse=True)
+    total = sum(sorted_scores[:2])
+    active_signals = [s for s, sc in zip(signals, scores) if sc > 0]
+    
+    return min(total, 35), active_signals, scores
 
 
-def calculate_volume_critical_score(data: Dict[str, Any]) -> tuple[int, List[str]]:
+def calculate_volume_critical_score_v2(data: Dict[str, Any]) -> Tuple[int, List[str], List[int]]:
     """
-    出来高臨界点スコアを計算（最大30点）
-    - 出来高の急増
-    - 浮動株回転率の異常
+    出来高臨界点スコア v2（Best 2 of 3）
+    最大30点
     """
-    score = 0
+    scores = []
     signals = []
     
-    # 1. 出来高倍率（最大15点）
+    # 条件1: 出来高倍率（最大15点）- 条件緩和
     volume_ratio = data.get("volume_ratio", 1.0)
     
-    if volume_ratio >= 5.0:
-        score += 15
-        signals.append("🔥 出来高5倍超（緊急事態）")
-    elif volume_ratio >= 3.0:
-        score += 12
-        signals.append("🚀 出来高3倍超（着火）")
+    if volume_ratio >= 3.0:
+        scores.append(15)
+        signals.append("🔥 出来高3倍超（着火）")
     elif volume_ratio >= 2.0:
-        score += 8
-        signals.append("⚡ 出来高2倍超（予兆）")
+        scores.append(12)
+        signals.append("🚀 出来高2倍超（予兆）")
     elif volume_ratio >= 1.5:
-        score += 4
+        scores.append(8)
         signals.append("⚡ 出来高1.5倍超")
+    elif volume_ratio >= 1.3:
+        scores.append(4)
+        signals.append("⚡ 出来高1.3倍超")
+    else:
+        scores.append(0)
     
-    # 2. 浮動株回転率（最大15点）
+    # 条件2: 浮動株回転率（最大12点）- 条件緩和
     turnover_pct = data.get("turnover_pct", 0)
     
-    if turnover_pct >= 10.0:
-        score += 15
-        signals.append("🌪️ 浮動株激動（10%超回転）")
-    elif turnover_pct >= 5.0:
-        score += 10
-        signals.append("🌪️ 浮動株活況（5%超回転）")
-    elif turnover_pct >= 2.0:
-        score += 5
+    if turnover_pct >= 6.0:
+        scores.append(12)
+        signals.append("🌪️ 浮動株激動（6%超回転）")
+    elif turnover_pct >= 3.0:
+        scores.append(9)
+        signals.append("🌪️ 浮動株活況（3%超回転）")
+    elif turnover_pct >= 1.5:
+        scores.append(5)
         signals.append("🌪️ 浮動株回転率上昇")
+    else:
+        scores.append(0)
     
-    return min(score, 30), signals
+    # 条件3: 売買代金の増加（最大10点）
+    trading_value = data.get("trading_value", 0)
+    avg_trading_value = data.get("avg_trading_value", 0)
+    
+    if avg_trading_value > 0:
+        tv_ratio = trading_value / avg_trading_value
+        if tv_ratio >= 2.5:
+            scores.append(10)
+            signals.append("💰 売買代金が平均の2.5倍超")
+        elif tv_ratio >= 1.8:
+            scores.append(7)
+            signals.append("💰 売買代金が平均の1.8倍超")
+        elif tv_ratio >= 1.3:
+            scores.append(4)
+            signals.append("💰 売買代金増加")
+        else:
+            scores.append(0)
+    else:
+        scores.append(0)
+    
+    # Best 2 of 3
+    sorted_scores = sorted(scores, reverse=True)
+    total = sum(sorted_scores[:2])
+    active_signals = [s for s, sc in zip(signals, scores) if sc > 0]
+    
+    return min(total, 30), active_signals, scores
 
 
-def analyze_hagetaka_signal(data: Dict[str, Any]) -> HagetakaSignal:
+def calculate_bonus_score(data: Dict[str, Any]) -> Tuple[int, List[str]]:
     """
-    ハゲタカシグナルを総合分析
+    ボーナススコア（レア条件）
+    最大+15点
+    """
+    bonus = 0
+    signals = []
+    
+    # ボーナス1: 出来高2.5倍以上
+    volume_ratio = data.get("volume_ratio", 1.0)
+    if volume_ratio >= 2.5:
+        bonus += 5
+        signals.append("🌟 出来高急増ボーナス")
+    
+    # ボーナス2: 回転率6%以上
+    turnover_pct = data.get("turnover_pct", 0)
+    if turnover_pct >= 6.0:
+        bonus += 5
+        signals.append("🌟 高回転率ボーナス")
+    
+    # ボーナス3: 時価総額500億以下の小型株
+    market_cap = data.get("market_cap", 0)
+    if market_cap > 0 and market_cap <= 5e10:
+        market_cap_oku = market_cap / 1e8
+        if volume_ratio >= 1.5:
+            bonus += 5
+            signals.append(f"🌟 小型株急動意ボーナス（{market_cap_oku:.0f}億円）")
+    
+    return min(bonus, 15), signals
+
+
+def analyze_hagetaka_signal_v2(data: Dict[str, Any]) -> HagetakaSignal:
+    """
+    ハゲタカシグナルを総合分析 v2
     """
     code = data.get("code", "")
     name = data.get("name", "")
     
-    # 3つの兆候を計算
-    stealth_score, stealth_signals = calculate_stealth_score(data)
-    board_score, board_signals = calculate_board_score(data)
-    volume_score, volume_signals = calculate_volume_critical_score(data)
+    # 3つの兆候を計算（Best 2 of 3）
+    stealth_score, stealth_signals, _ = calculate_stealth_score_v2(data)
+    board_score, board_signals, _ = calculate_board_score_v2(data)
+    volume_score, volume_signals, _ = calculate_volume_critical_score_v2(data)
+    
+    # ボーナススコア
+    bonus_score, bonus_signals = calculate_bonus_score(data)
     
     # 総合スコア
-    total_score = stealth_score + board_score + volume_score
-    
-    # シグナルレベル判定
-    if total_score >= 70:
-        signal_level = SignalLevel.LOCKON
-    elif total_score >= 50:
-        signal_level = SignalLevel.HIGH
-    elif total_score >= 30:
-        signal_level = SignalLevel.MEDIUM
-    else:
-        signal_level = SignalLevel.LOW
+    base_score = stealth_score + board_score + volume_score
+    total_score = min(base_score + bonus_score, 100)
     
     # 全シグナルを統合
-    all_signals = stealth_signals + board_signals + volume_signals
+    all_signals = stealth_signals + board_signals + volume_signals + bonus_signals
+    
+    # シグナルレベルは後で決定（上位N件制限のため）
+    signal_level = SignalLevel.LOW
+    if total_score >= LOCKON_SETTINGS["min_score"]:
+        signal_level = SignalLevel.HIGH  # 暫定
+    elif total_score >= LOCKON_SETTINGS["high_alert_score"]:
+        signal_level = SignalLevel.HIGH
+    elif total_score >= LOCKON_SETTINGS["medium_score"]:
+        signal_level = SignalLevel.MEDIUM
     
     return HagetakaSignal(
         code=code,
@@ -555,6 +557,7 @@ def analyze_hagetaka_signal(data: Dict[str, Any]) -> HagetakaSignal:
         stealth_score=stealth_score,
         board_score=board_score,
         volume_score=volume_score,
+        bonus_score=bonus_score,
         signals=all_signals,
         price=data.get("price", 0),
         change_pct=data.get("change_pct", 0),
@@ -563,57 +566,221 @@ def analyze_hagetaka_signal(data: Dict[str, Any]) -> HagetakaSignal:
         volume_ratio=data.get("volume_ratio", 0),
         turnover_pct=data.get("turnover_pct", 0),
         market_cap=data.get("market_cap", 0),
+        trading_value=data.get("trading_value", 0),
     )
 
 
-def scan_all_stocks(codes: List[str] = None, progress_callback=None) -> List[HagetakaSignal]:
+# ==========================================
+# 並列データ取得
+# ==========================================
+def fetch_stocks_parallel(codes: List[str], max_workers: int = 10) -> Dict[str, Dict]:
     """
-    全銘柄をスキャンしてハゲタカシグナルを検知
+    並列でデータ取得（高速化）
+    """
+    results = {}
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_code = {
+            executor.submit(get_stock_data_cached, code): code 
+            for code in codes
+        }
+        
+        for future in as_completed(future_to_code):
+            code = future_to_code[future]
+            try:
+                data = future.result()
+                if data:
+                    results[code] = data
+            except Exception:
+                pass
+    
+    return results
+
+
+# ==========================================
+# メインスキャン関数
+# ==========================================
+def scan_all_stocks(
+    codes: List[str], 
+    progress_callback: Callable[[int, int, str], None] = None,
+    use_gate: bool = True
+) -> List[HagetakaSignal]:
+    """
+    全銘柄をスキャンしてハゲタカシグナルを検知（高速版）
     
     Args:
-        codes: スキャン対象の銘柄コードリスト（Noneの場合は全銘柄）
+        codes: スキャン対象の銘柄コードリスト
         progress_callback: 進捗コールバック関数
+        use_gate: ゲート条件を使用するか
     
     Returns:
         検知されたシグナルのリスト（スコア順）
     """
-    if codes is None:
-        codes = get_all_japan_stocks()
-    
     signals = []
     total = len(codes)
     
-    for i, code in enumerate(codes):
+    # Phase 1: 並列でデータ取得
+    if progress_callback:
+        progress_callback(0, total, "データ取得中...")
+    
+    # バッチ処理（50件ずつ）
+    batch_size = 50
+    all_data = {}
+    
+    for i in range(0, total, batch_size):
+        batch_codes = codes[i:i+batch_size]
+        batch_data = fetch_stocks_parallel(batch_codes, max_workers=10)
+        all_data.update(batch_data)
+        
         if progress_callback:
-            progress_callback(i + 1, total, code)
-        
-        # データ取得
-        data = get_stock_data(code)
-        if data is None:
-            continue
-        
-        # シグナル分析
-        signal = analyze_hagetaka_signal(data)
+            progress_callback(min(i + batch_size, total), total, f"データ取得中... {len(all_data)}件")
+    
+    # Phase 2: ゲート判定（高速フィルタリング）
+    if use_gate:
+        filtered_data = {code: data for code, data in all_data.items() if pass_gate(data)}
+    else:
+        filtered_data = all_data
+    
+    if progress_callback:
+        progress_callback(total, total, f"ゲート通過: {len(filtered_data)}件 / {len(all_data)}件")
+    
+    # Phase 3: スコアリング
+    for code, data in filtered_data.items():
+        signal = analyze_hagetaka_signal_v2(data)
         signals.append(signal)
-        
-        # API制限対策
-        time.sleep(random.uniform(0.3, 0.8))
     
     # スコア順にソート
     signals.sort(key=lambda x: x.total_score, reverse=True)
     
+    # Phase 4: ロックオン判定（上位N件制限）
+    lockon_count = 0
+    for signal in signals:
+        if signal.total_score >= LOCKON_SETTINGS["min_score"] and lockon_count < LOCKON_SETTINGS["max_lockon_count"]:
+            signal.signal_level = SignalLevel.LOCKON
+            lockon_count += 1
+        elif signal.total_score >= LOCKON_SETTINGS["high_alert_score"]:
+            signal.signal_level = SignalLevel.HIGH
+        elif signal.total_score >= LOCKON_SETTINGS["medium_score"]:
+            signal.signal_level = SignalLevel.MEDIUM
+        else:
+            signal.signal_level = SignalLevel.LOW
+    
     return signals
 
 
-def get_lockons(signals: List[HagetakaSignal], min_score: int = 50) -> List[HagetakaSignal]:
+# ==========================================
+# 銘柄リスト取得関数
+# ==========================================
+@st.cache_data(ttl=86400, show_spinner=False)  # 24時間キャッシュ
+def fetch_jpx_stock_list() -> pd.DataFrame:
     """
-    ロックオン銘柄（高スコア銘柄）を抽出
+    JPX（日本取引所）から全銘柄リストを取得
     """
-    return [s for s in signals if s.total_score >= min_score]
+    url = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
+    
+    try:
+        df = pd.read_excel(url, dtype={'コード': str})
+        df = df[['コード', '銘柄名', '市場・商品区分']].copy()
+        df.columns = ['code', 'name', 'market']
+        df['code'] = df['code'].astype(str).str.strip()
+        return df
+    except Exception as e:
+        print(f"JPX銘柄リスト取得エラー: {e}")
+        return pd.DataFrame()
+
+
+def get_stocks_by_market(market: str) -> List[str]:
+    """市場別に銘柄コードを取得"""
+    df = fetch_jpx_stock_list()
+    if df.empty:
+        return get_fallback_stocks(market)
+    
+    market_map = {
+        "prime": "プライム",
+        "standard": "スタンダード",
+        "growth": "グロース",
+    }
+    
+    if market in market_map:
+        filtered = df[df['market'].str.contains(market_map[market], na=False)]
+        return filtered['code'].tolist()
+    
+    return df['code'].tolist()
+
+
+def get_fallback_stocks(market: str = "all") -> List[str]:
+    """フォールバック銘柄リスト"""
+    prime = [
+        "7203", "9984", "6758", "8306", "9432", "6861", "7267", "4502", "6501", "8058",
+        "9433", "6902", "7751", "4063", "8316", "6098", "9022", "8411", "4568", "6981",
+        "7974", "6367", "6594", "8035", "4519", "6273", "9983", "8031", "6954", "7741",
+    ]
+    growth = [
+        "4385", "4436", "4478", "4477", "4071", "4485", "7095", "4168", "4054", "4484",
+    ]
+    standard = [
+        "3092", "6532", "2413", "3064", "4307", "6035", "7148", "3688", "4384", "6184",
+    ]
+    
+    if market == "prime":
+        return prime
+    elif market == "growth":
+        return growth
+    elif market == "standard":
+        return standard
+    return prime + growth + standard
+
+
+def get_volume_ranking_stocks(top_n: int = 100) -> List[str]:
+    """
+    クイックスキャン用銘柄リスト（出来高上位を想定）
+    """
+    # 日経225 + 人気銘柄
+    stocks = [
+        "7203", "9984", "6758", "8306", "9432", "6861", "7267", "4502", "6501", "8058",
+        "9433", "6902", "7751", "4063", "8316", "6098", "9022", "8411", "4568", "6981",
+        "7974", "6367", "6594", "8035", "4519", "6273", "9983", "8031", "6954", "7741",
+        "4661", "6503", "8766", "9020", "6702", "8801", "4503", "6971", "7269", "8802",
+        "3382", "8267", "9101", "4452", "6301", "7733", "4901", "8591", "6326", "5401",
+        "4385", "4436", "4478", "4477", "4071", "4485", "7095", "4168", "4054", "4484",
+        "2914", "4911", "7011", "5713", "6753", "4543", "6762", "3407", "6479", "7832",
+        "6506", "7731", "9613", "4704", "6723", "8604", "2801", "6857", "9735", "4901",
+        "6988", "4523", "6770", "9107", "6645", "7272", "4578", "6471", "4689", "7012",
+        "2502", "8053", "6841", "5802", "4507", "6952", "7261", "1925", "5020", "6504",
+    ]
+    return stocks[:top_n]
+
+
+def get_all_japan_stocks() -> List[str]:
+    """全銘柄コードを取得"""
+    df = fetch_jpx_stock_list()
+    if df.empty:
+        return get_fallback_stocks("all")
+    return df['code'].tolist()
+
+
+def get_scan_targets(mode: ScanMode, custom_codes: List[str] = None) -> List[str]:
+    """スキャンモードに応じた銘柄リストを取得"""
+    if mode == ScanMode.QUICK:
+        return get_volume_ranking_stocks(100)
+    elif mode == ScanMode.PRIME:
+        return get_stocks_by_market("prime")
+    elif mode == ScanMode.STANDARD:
+        return get_stocks_by_market("standard")
+    elif mode == ScanMode.GROWTH:
+        return get_stocks_by_market("growth")
+    elif mode == ScanMode.ALL:
+        return get_all_japan_stocks()
+    elif mode == ScanMode.CUSTOM:
+        return custom_codes or []
+    return get_volume_ranking_stocks(100)
+
+
+def get_lockons(signals: List[HagetakaSignal]) -> List[HagetakaSignal]:
+    """ロックオン銘柄を抽出"""
+    return [s for s in signals if s.signal_level == SignalLevel.LOCKON]
 
 
 def get_watchlist_signals(signals: List[HagetakaSignal], min_score: int = 30) -> List[HagetakaSignal]:
-    """
-    監視リスト銘柄（中スコア以上）を抽出
-    """
+    """監視リスト銘柄を抽出"""
     return [s for s in signals if s.total_score >= min_score]
