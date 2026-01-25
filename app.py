@@ -593,7 +593,7 @@ with tab1:
         # フィルター
         col1, col2 = st.columns([1, 1])
         with col1:
-            min_score_filter = st.slider("最低スコア", 0, 100, 30, key="filter_score")
+            min_score_filter = st.slider("最低スコア", 0, 100, 0, key="filter_score")
         with col2:
             sort_option = st.selectbox("並び順", ["スコア順", "出来高倍率順", "回転率順"])
         
@@ -618,17 +618,21 @@ with tab1:
                 
                 # 詳細展開
                 with st.expander(f"📊 {signal.code} の詳細分析"):
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         st.metric("🥷 ステルス集積", f"{signal.stealth_score}/35点")
                     with col2:
                         st.metric("🧱 板の違和感", f"{signal.board_score}/35点")
                     with col3:
                         st.metric("🔥 出来高臨界点", f"{signal.volume_score}/30点")
+                    with col4:
+                        st.metric("🌟 ボーナス", f"+{signal.bonus_score}点")
                     
                     st.markdown("**検知シグナル:**")
                     for s in signal.signals:
                         st.markdown(f"- {s}")
+    elif st.session_state.get("last_scan_time"):
+        st.warning("⚠️ スキャン結果が0件でした。データ取得に失敗した可能性があります。時間をおいて再度お試しください。")
     else:
         st.info("👆 「スキャン開始」ボタンを押して、ハゲタカの足跡を探索してください。")
     
