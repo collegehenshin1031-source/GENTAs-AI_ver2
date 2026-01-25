@@ -52,9 +52,9 @@ SCAN_OPTIONS = {
     ScanMode.QUICK: ScanOption(
         mode=ScanMode.QUICK,
         label="⚡ クイックスキャン（推奨）",
-        description="出来高急増銘柄を高速スキャン",
+        description="主要銘柄100社を高速スキャン",
         estimated_count=100,
-        estimated_time="約30秒〜1分",
+        estimated_time="約1〜2分",
         warning=None
     ),
     ScanMode.PRIME: ScanOption(
@@ -62,32 +62,32 @@ SCAN_OPTIONS = {
         label="🏢 プライム市場",
         description="東証プライム上場銘柄",
         estimated_count=1800,
-        estimated_time="約5〜8分",
-        warning="時間がかかります"
+        estimated_time="約10〜15分",
+        warning=None
     ),
     ScanMode.STANDARD: ScanOption(
         mode=ScanMode.STANDARD,
         label="🏬 スタンダード市場",
         description="東証スタンダード上場銘柄",
         estimated_count=1400,
-        estimated_time="約4〜6分",
-        warning="時間がかかります"
+        estimated_time="約8〜12分",
+        warning=None
     ),
     ScanMode.GROWTH: ScanOption(
         mode=ScanMode.GROWTH,
         label="🌱 グロース市場",
         description="東証グロース上場銘柄",
         estimated_count=500,
-        estimated_time="約2〜3分",
+        estimated_time="約3〜5分",
         warning=None
     ),
     ScanMode.ALL: ScanOption(
         mode=ScanMode.ALL,
         label="🌐 全銘柄スキャン",
-        description="日本株全銘柄（約3,800社）",
-        estimated_count=3800,
-        estimated_time="約15〜20分",
-        warning="⚠️ 非常に時間がかかります。自動監視（GitHub Actions）での実行を推奨します。"
+        description="日本株全銘柄（約4,000社）",
+        estimated_count=4000,
+        estimated_time="約20〜30分",
+        warning=None
     ),
     ScanMode.CUSTOM: ScanOption(
         mode=ScanMode.CUSTOM,
@@ -573,9 +573,9 @@ def analyze_hagetaka_signal_v2(data: Dict[str, Any]) -> HagetakaSignal:
 # ==========================================
 # 並列データ取得
 # ==========================================
-def fetch_stocks_parallel(codes: List[str], max_workers: int = 10) -> Dict[str, Dict]:
+def fetch_stocks_parallel(codes: List[str], max_workers: int = 3) -> Dict[str, Dict]:
     """
-    並列でデータ取得（高速化）
+    並列でデータ取得（API制限対策で並列数を抑制）
     """
     results = {}
     
@@ -594,6 +594,9 @@ def fetch_stocks_parallel(codes: List[str], max_workers: int = 10) -> Dict[str, 
             except Exception:
                 pass
     
+    # API制限対策: バッチ間で少し待つ
+    time.sleep(0.5)
+    
     return results
 
 
@@ -606,7 +609,7 @@ def scan_all_stocks(
     use_gate: bool = True
 ) -> List[HagetakaSignal]:
     """
-    全銘柄をスキャンしてハゲタカシグナルを検知（高速版）
+    全銘柄をスキャンしてハゲタカシグナルを検知
     
     Args:
         codes: スキャン対象の銘柄コードリスト
@@ -619,21 +622,30 @@ def scan_all_stocks(
     signals = []
     total = len(codes)
     
-    # Phase 1: 並列でデータ取得
+    # Phase 1: 並列でデータ取得（バッチサイズを小さく）
     if progress_callback:
         progress_callback(0, total, "データ取得中...")
     
-    # バッチ処理（50件ずつ）
-    batch_size = 50
+    batch_size = 20  # 50→20に縮小
     all_data = {}
+    failed_count = 0
     
     for i in range(0, total, batch_size):
         batch_codes = codes[i:i+batch_size]
-        batch_data = fetch_stocks_parallel(batch_codes, max_workers=10)
+        batch_data = fetch_stocks_parallel(batch_codes, max_workers=3)  # 10→3に縮小
+        
+        failed_count += len(batch_codes) - len(batch_data)
         all_data.update(batch_data)
         
         if progress_callback:
-            progress_callback(min(i + batch_size, total), total, f"データ取得中... {len(all_data)}件")
+            progress_callback(
+                min(i + batch_size, total), 
+                total, 
+                f"取得成功: {len(all_data)}件 / 失敗: {failed_count}件"
+            )
+        
+        # API制限対策: バッチ間で待機
+        time.sleep(0.3)
     
     # Phase 2: ゲート判定（高速フィルタリング）
     if use_gate:
@@ -642,7 +654,7 @@ def scan_all_stocks(
         filtered_data = all_data
     
     if progress_callback:
-        progress_callback(total, total, f"ゲート通過: {len(filtered_data)}件 / {len(all_data)}件")
+        progress_callback(total, total, f"ゲート通過: {len(filtered_data)}件 / 取得成功: {len(all_data)}件")
     
     # Phase 3: スコアリング
     for code, data in filtered_data.items():

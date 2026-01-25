@@ -516,21 +516,7 @@ with tab1:
     
     # スキャン実行ボタン
     st.markdown("")  # スペーサー
-    
-    # 全銘柄スキャンの場合は確認ダイアログ
-    if selected_mode == scanner.ScanMode.ALL:
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            confirm_all = st.checkbox("⚠️ 長時間かかることを理解しました", key="confirm_all_scan")
-        with col2:
-            scan_btn = st.button(
-                "🚀 全銘柄スキャン開始", 
-                type="primary", 
-                disabled=not confirm_all,
-                use_container_width=True
-            )
-    else:
-        scan_btn = st.button("🚀 スキャン開始", type="primary", use_container_width=True)
+    scan_btn = st.button("🚀 スキャン開始", type="primary", use_container_width=True)
     
     # スキャン実行
     if scan_btn:
@@ -562,25 +548,36 @@ with tab1:
             results = scanner.scan_all_stocks(codes, progress_callback=update_progress)
             st.session_state["scan_results"] = results
             st.session_state["last_scan_time"] = datetime.now()
+            st.session_state["scan_target_count"] = len(codes)
         
         progress_bar.empty()
         status_text.empty()
         
         # 結果サマリー
-        lockons = [s for s in results if s.total_score >= 70]
-        high_alerts = [s for s in results if 50 <= s.total_score < 70]
-        
-        st.success(f"""
-        ✅ スキャン完了！
-        - 🔴 ロックオン: {len(lockons)}件
-        - 🟠 高警戒: {len(high_alerts)}件
-        - 📊 スキャン銘柄数: {len(results)}件
-        """)
-        
-        # 通知チェック
-        config = st.session_state.get("notification_config", notifier.NotificationConfig())
-        if config.enabled and config.email_enabled and lockons:
-            st.info(f"📧 {len(lockons)}件のロックオン銘柄を検知しました！")
+        if results:
+            lockons = [s for s in results if s.signal_level == scanner.SignalLevel.LOCKON]
+            high_alerts = [s for s in results if s.signal_level == scanner.SignalLevel.HIGH]
+            medium_alerts = [s for s in results if s.signal_level == scanner.SignalLevel.MEDIUM]
+            
+            st.success(f"""
+            ✅ スキャン完了！
+            - 🔴 ロックオン: {len(lockons)}件
+            - 🟠 高警戒: {len(high_alerts)}件
+            - 🟡 監視中: {len(medium_alerts)}件
+            - 📊 分析完了: {len(results)}件 / 対象: {len(codes)}件
+            """)
+            
+            # 通知チェック
+            config = st.session_state.get("notification_config", notifier.NotificationConfig())
+            if config.enabled and config.email_enabled and lockons:
+                st.info(f"📧 {len(lockons)}件のロックオン銘柄を検知しました！")
+        else:
+            st.error(f"""
+            ⚠️ スキャン結果が0件でした
+            - 対象銘柄数: {len(codes)}件
+            - データ取得に失敗した可能性があります
+            - 時間をおいて再度お試しください
+            """)
         
         st.rerun()
     
