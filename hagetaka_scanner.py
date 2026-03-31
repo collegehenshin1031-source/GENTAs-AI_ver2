@@ -796,3 +796,36 @@ def get_lockons(signals: List[HagetakaSignal]) -> List[HagetakaSignal]:
 def get_watchlist_signals(signals: List[HagetakaSignal], min_score: int = 30) -> List[HagetakaSignal]:
     """監視リスト銘柄を抽出"""
     return [s for s in signals if s.total_score >= min_score]
+
+# ==========================================
+# 夜間バッチ連携（アプローチA）用 キャッシュ読み込み機能
+# ==========================================
+import json
+import os
+
+def load_daily_cache() -> Dict[str, Any]:
+    """夜間バッチで作成された全銘柄データを読み込む（負荷ゼロ処理）"""
+    cache_path = "data/daily_ma_cache.json"
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache = json.load(f)
+                return cache.get("data", {})
+        except Exception as e:
+            print(f"キャッシュ読み込みエラー: {e}")
+    return {}
+
+def get_cached_or_fetch(codes: List[str]) -> Dict[str, Any]:
+    """
+    全銘柄スキャン時はキャッシュを返し、個別検索時はリアルタイム取得するハイブリッド関数。
+    """
+    # 銘柄数が1000以上の場合は全銘柄スキャンと判定し、夜間キャッシュを返す
+    if len(codes) > 1000:
+        cached_data = load_daily_cache()
+        if cached_data:
+            # 要求されたコードのデータのみを抽出して返す
+            return {code: cached_data[code] for code in codes if code in cached_data}
+            
+    # 個別検索やクイックスキャン（少数）の場合は、これまで通りリアルタイム取得
+    import fair_value_calc_y4 as fv
+    return fv.calc_genta_bundle(codes)
