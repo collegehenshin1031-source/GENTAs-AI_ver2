@@ -534,8 +534,6 @@ with tab1:
             st.error("スキャン対象の銘柄が見つかりませんでした")
             st.stop()
         
-        st.info(f"🎯 {len(codes)}銘柄をスキャンします")
-        
         # プログレスバー
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -545,39 +543,50 @@ with tab1:
             status_text.text(f"スキャン中... {current}/{total} - {code}")
         
         with st.spinner("🔍 ハゲタカの足跡を探索中..."):
-            # ==========================================
-            # 【アプローチA】夜間生成キャッシュからの負荷ゼロ高速読み込み
-            # ==========================================
             import os
             import pickle
             cache_path = "data/daily_hagetaka_cache.pkl"
             
-            if selected_mode == scanner.ScanMode.ALL and os.path.exists(cache_path):
-                try:
-                    with open(cache_path, 'rb') as f:
-                        results = pickle.load(f)
-                    
-                    # 万が一キャッシュのデータが極端に少ない場合の安全装置
-                    if len(results) >= len(codes) * 0.9:
-                        progress_bar.progress(1.0)
-                        status_text.text("✅ 夜間生成キャッシュからの高速読み込み完了")
+            # 【緊急応急処置】全銘柄スキャン時にキャッシュが存在しない場合は、強制的にクイック（100銘柄）へ切り替えてパンクを防止
+            if selected_mode == scanner.ScanMode.ALL:
+                if os.path.exists(cache_path):
+                    try:
+                        with open(cache_path, 'rb') as f:
+                            results = pickle.load(f)
+                        
+                        if len(results) >= len(codes) * 0.9:
+                            progress_bar.progress(1.0)
+                            status_text.text("✅ 夜間生成キャッシュからの高速読み込み完了")
+                            st.session_state["scan_results"] = results
+                            st.session_state["last_scan_time"] = datetime.now()
+                            st.session_state["scan_target_count"] = len(results)
+                        else:
+                            st.warning("⚠️ 最新の全銘柄データを裏側で構築中です。サーバー保護のため一時的に主要100銘柄スキャンを実行します。")
+                            fallback_codes = scanner.get_volume_ranking_stocks(100)
+                            results = scanner.scan_all_stocks(fallback_codes, progress_callback=update_progress)
+                            st.session_state["scan_results"] = results
+                            st.session_state["last_scan_time"] = datetime.now()
+                            st.session_state["scan_target_count"] = len(fallback_codes)
+                            codes = fallback_codes
+                    except Exception as e:
+                        print(f"キャッシュ読み込みエラー: {e}")
+                        st.warning("⚠️ 最新の全銘柄データを裏側で構築中です。サーバー保護のため一時的に主要100銘柄スキャンを実行します。")
+                        fallback_codes = scanner.get_volume_ranking_stocks(100)
+                        results = scanner.scan_all_stocks(fallback_codes, progress_callback=update_progress)
                         st.session_state["scan_results"] = results
                         st.session_state["last_scan_time"] = datetime.now()
-                        st.session_state["scan_target_count"] = len(results)
-                    else:
-                        # フォールバック処理（通常取得）
-                        results = scanner.scan_all_stocks(codes, progress_callback=update_progress)
-                        st.session_state["scan_results"] = results
-                        st.session_state["last_scan_time"] = datetime.now()
-                        st.session_state["scan_target_count"] = len(codes)
-                except Exception as e:
-                    print(f"キャッシュ読み込みエラー: {e}")
-                    results = scanner.scan_all_stocks(codes, progress_callback=update_progress)
+                        st.session_state["scan_target_count"] = len(fallback_codes)
+                        codes = fallback_codes
+                else:
+                    st.warning("⚠️ 最新の全銘柄データを裏側で構築中です（後場までに完了予定）。サーバーダウンを防ぐため、一時的に主要100銘柄スキャンに切り替えて実行します。")
+                    fallback_codes = scanner.get_volume_ranking_stocks(100)
+                    results = scanner.scan_all_stocks(fallback_codes, progress_callback=update_progress)
                     st.session_state["scan_results"] = results
                     st.session_state["last_scan_time"] = datetime.now()
-                    st.session_state["scan_target_count"] = len(codes)
+                    st.session_state["scan_target_count"] = len(fallback_codes)
+                    codes = fallback_codes
             else:
-                # 全銘柄以外、またはキャッシュ未生成時は通常取得
+                # 全銘柄以外は通常通り取得
                 results = scanner.scan_all_stocks(codes, progress_callback=update_progress)
                 st.session_state["scan_results"] = results
                 st.session_state["last_scan_time"] = datetime.now()
@@ -742,9 +751,6 @@ with tab2:
                 with st.spinner("🎯 M&A予兆分析中..."):
                     try:
                         import fair_value_calc_y4 as fv
-                        # ==========================================
-                        # 【アプローチA】ハイブリッド取得関数へ差し替え
-                        # ==========================================
                         bundle = scanner.get_cached_or_fetch(watchlist)
                         stock_data_list = [bundle.get(code, {}) for code in watchlist]
                         ma_results = ma.batch_analyze_ma(stock_data_list, with_news=True)
