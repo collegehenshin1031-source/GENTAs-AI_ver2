@@ -15,7 +15,7 @@ TEMP_MA_FILE = os.path.join(CACHE_DIR, "daily_ma_cache_temp.json")
 TEMP_HAGETAKA_FILE = os.path.join(CACHE_DIR, "daily_hagetaka_cache_temp.pkl")
 
 def run_nightly_batch():
-    print(f"[{datetime.now()}] 夜間バッチ処理（APIブロック回避モード）を開始します")
+    print(f"[{datetime.now()}] 夜間バッチ処理（APIブロック回避＆JSON修正モード）を開始します")
     
     if not os.path.exists(CACHE_DIR):
         os.makedirs(CACHE_DIR)
@@ -34,6 +34,12 @@ def run_nightly_batch():
         try:
             # 1銘柄ずつ確実に取得
             bundle_data = fv.calc_genta_bundle([code])
+            
+            # 【修正ポイント】JSON保存エラーの原因になる「DataFrame(表データ)」を安全に削除
+            for k, v in bundle_data.items():
+                if "hist_data" in v:
+                    v["hist_data"] = None 
+                    
             ma_results.update(bundle_data)
         except Exception as e:
             print(f"エラー {code}: {e}")
