@@ -2,8 +2,8 @@ name: Daily MA Cache Batch
 
 on:
   schedule:
-    # JSTの深夜2:00（UTCの17:00）に実行
-    - cron: '0 17 * * *'
+    # JSTの深夜0:00（UTCの15:00）に実行し、朝6時までにデータを揃える
+    - cron: '0 15 * * *'
   workflow_dispatch:
 
 # GitHubの倉庫にファイルを保存するための権限を付与
