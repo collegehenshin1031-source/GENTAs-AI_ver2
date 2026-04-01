@@ -295,7 +295,6 @@ def check_password():
     if not st.session_state["logged_in"]:
         st.markdown("## 🔒 ACCESS RESTRICTED")
         
-        # st.formを使用して入力をグループ化し、無駄な再実行を防止
         with st.form("login_form"):
             password_input = st.text_input("パスワードを入力してください", type="password")
             submit_btn = st.form_submit_button("ログイン")
@@ -332,7 +331,7 @@ def fmt_pct(x):
 def fmt_market_cap(x):
     if x is None or pd.isna(x) or x == 0: return "—"
     try:
-        v = float(x) / 1e8  # 億円換算
+        v = float(x) / 1e8
         if v >= 10000: return f"{v/10000:.1f}兆円"
         return f"{v:.0f}億円"
     except: return "—"
@@ -412,7 +411,7 @@ with tab1:
             st.markdown(f"""
             <div class="status-indicator">
                 <span class="status-dot active"></span>
-                最終スキャン: {last_scan.strftime('%H:%M')}
+                最終データ更新: {last_scan.strftime('%H:%M')}
             </div>
             """, unsafe_allow_html=True)
     
@@ -421,7 +420,7 @@ with tab1:
         st.metric("ロックオン銘柄", f"{len(lockons)}件")
     
     st.divider()
-    st.markdown("### 🔍 スキャン設定")
+    st.markdown("### 🔍 表示データ設定")
     
     scan_mode_options = {
         "⚡ クイックスキャン（推奨）": scanner.ScanMode.QUICK,
@@ -432,14 +431,14 @@ with tab1:
         "✏️ 銘柄コードを直接入力": scanner.ScanMode.CUSTOM,
     }
     
-    selected_mode_label = st.selectbox("スキャン対象を選択", options=list(scan_mode_options.keys()), index=0)
+    selected_mode_label = st.selectbox("表示対象を選択", options=list(scan_mode_options.keys()), index=0)
     selected_mode = scan_mode_options[selected_mode_label]
     scan_option = scanner.SCAN_OPTIONS[selected_mode]
     
     st.markdown(f"""
     <div style="background: #F8F9FA; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.9rem; margin-bottom: 1rem;">
         📋 <strong>{scan_option.description}</strong><br>
-        <span style="color: #666;">対象: 約{scan_option.estimated_count}銘柄 / 所要時間: {scan_option.estimated_time}</span>
+        <span style="color: #666;">※夜間に自動構築されたキャッシュデータから瞬時に呼び出します</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -449,53 +448,38 @@ with tab1:
         if custom_input:
             custom_codes = [c.strip() for c in custom_input.split() if c.strip()]
             
-    scan_btn = st.button("🚀 スキャン開始", type="primary", use_container_width=True)
+    scan_btn = st.button("🚀 データ呼び出し", type="primary", use_container_width=True)
     
     if scan_btn:
         codes = scanner.get_scan_targets(selected_mode, custom_codes)
-        if not codes:
-            st.error("スキャン対象の銘柄が見つかりませんでした")
-            st.stop()
+        cache_path = "data/daily_hagetaka_cache.pkl"
         
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        def update_progress(current, total, code):
-            progress_bar.progress(current / total)
-            status_text.text(f"スキャン中... {current}/{total} - {code}")
-        
-        with st.spinner("🔍 ハゲタカの足跡を探索中..."):
-            cache_path = "data/daily_hagetaka_cache.pkl"
-            
-            # 【究極のハイブリッド処理】
-            if selected_mode == scanner.ScanMode.ALL and os.path.exists(cache_path):
+        # 【完全API分離ロジック】キャッシュがある場合のみ読み込む。絶対にライブ取得はしない。
+        if os.path.exists(cache_path):
+            with st.spinner("📦 キャッシュデータを読み込み中..."):
                 try:
                     with open(cache_path, 'rb') as f:
-                        results = pickle.load(f)
-                    progress_bar.progress(1.0)
-                    status_text.text("✅ 最新の完成データを読み込みました（待ち時間ゼロ）")
-                    st.success("📦 裏側で完成していた4000銘柄の最新データを一瞬で読み込みました！")
+                        all_results = pickle.load(f)
+                    
+                    # モードに合わせてフィルタリング
+                    if selected_mode == scanner.ScanMode.ALL:
+                        results = all_results
+                    else:
+                        target_set = set(codes)
+                        results = [r for r in all_results if r.code in target_set]
+                        
+                    if results:
+                        st.session_state["scan_results"] = results
+                        st.session_state["last_scan_time"] = datetime.now()
+                        st.success(f"✅ {len(results)}件のデータを瞬時に読み込みました！")
+                    else:
+                        st.warning("⚠️ 指定された銘柄のデータがキャッシュ内にありませんでした。")
+                        
                 except Exception as e:
-                    safe_codes = codes[:30]
-                    st.warning("⚠️ データの読み込みに失敗しました。サーバー保護のため、主要30銘柄のみをスキャンします。")
-                    results = scanner.scan_all_stocks(safe_codes, progress_callback=update_progress)
-            else:
-                if selected_mode == scanner.ScanMode.ALL:
-                    safe_codes = codes[:50]
-                    st.warning("⚠️ 現在、裏側で約4000銘柄のデータを構築中です（あと1〜2時間で完了予定）。\nサーバーダウンを防ぐため、完了までは一時的に【主要50銘柄】のみを高速スキャンします。")
-                    results = scanner.scan_all_stocks(safe_codes, progress_callback=update_progress)
-                else:
-                    safe_codes = codes[:100]
-                    results = scanner.scan_all_stocks(safe_codes, progress_callback=update_progress)
-
-        progress_bar.empty()
-        status_text.empty()
-        
-        if results:
-            st.session_state["scan_results"] = results
-            st.session_state["last_scan_time"] = datetime.now()
+                    st.error(f"データの読み込みに失敗しました: {e}")
         else:
-            st.error("⚠️ スキャン結果が0件でした。時間をおいて再度お試しください。")
+            st.warning("⚠️ 現在、サーバー裏側のバッチ処理でデータを構築中です。\nデータ完成までしばらくお待ちください（※API制限回避のためゆっくり実行されています）。")
+            
         st.rerun()
     
     # 結果表示
@@ -506,7 +490,7 @@ with tab1:
         for signal in results[:20]:
             render_stock_card(signal)
     else:
-        st.info("👆 「スキャン開始」ボタンを押して探索してください。")
+        st.info("👆 「データ呼び出し」ボタンを押して結果を表示してください。")
 
 # ==========================================
 # タブ2: ハゲタカ監視（M&A予兆）
@@ -540,32 +524,28 @@ with tab2:
         col1, col2 = st.columns([1, 1])
         with col1:
             if st.button("🔍 M&A分析実行", type="primary", key="ma_analyze"):
-                with st.spinner("🎯 M&A予兆分析中..."):
-                    try:
-                        import fair_value_calc_y4 as fv
-                        cache_path_ma = "data/daily_ma_cache.json"
-                        bundle = {}
-                        
-                        if os.path.exists(cache_path_ma):
-                            try:
-                                with open(cache_path_ma, 'r', encoding='utf-8') as f:
-                                    cache_data = json.load(f)
-                                    all_bundle = cache_data.get("data", {})
-                                    bundle = {c: all_bundle[c] for c in watchlist if c in all_bundle}
-                                    if bundle: st.success("📦 一部または全てのデータをキャッシュから高速読み込みしました！")
-                            except:
-                                pass
-                        
-                        missing_codes = [c for c in watchlist if c not in bundle][:20]
-                        if missing_codes:
-                            live_bundle = fv.calc_genta_bundle(missing_codes)
-                            bundle.update(live_bundle)
-
-                        stock_data_list = [bundle.get(code, {}) for code in watchlist if code in bundle]
+                with st.spinner("🎯 M&Aデータをキャッシュから展開中..."):
+                    cache_path_ma = "data/daily_ma_cache.json"
+                    bundle = {}
+                    
+                    # 【完全API分離ロジック】キャッシュのみを参照する
+                    if os.path.exists(cache_path_ma):
+                        try:
+                            with open(cache_path_ma, 'r', encoding='utf-8') as f:
+                                cache_data = json.load(f)
+                                all_bundle = cache_data.get("data", {})
+                                bundle = {c: all_bundle[c] for c in watchlist if c in all_bundle}
+                        except Exception as e:
+                            st.error(f"キャッシュ読み込みエラー: {e}")
+                    
+                    if not bundle:
+                        st.warning("⚠️ キャッシュデータが存在しないか、監視リストの銘柄がまだ裏側で処理されていません。\nバッチ処理の完了をお待ちください。")
+                    else:
+                        stock_data_list = list(bundle.values())
                         ma_results = ma.batch_analyze_ma(stock_data_list, with_news=True)
                         st.session_state["ma_results"] = ma_results
-                    except Exception as e:
-                        st.error(f"エラー: {e}")
+                        st.rerun()
+
         with col2:
             if st.button("🗑️ リストをクリア", key="clear_watch"):
                 st.session_state["watchlist"] = []
