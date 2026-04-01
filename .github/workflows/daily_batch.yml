@@ -1,0 +1,35 @@
+name: Daily MA Cache Batch
+
+on:
+  schedule:
+    # JSTの深夜2:00（UTCの17:00）に実行
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+
+# GitHubの倉庫にファイルを保存するための権限を付与
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      - name: Run daily batch
+        run: python daily_batch.py
+        
+      # ▼▼▼ 追加：作ったデータをGitHubに保存して帰る作業 ▼▼▼
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/daily_ma_cache.json data/daily_hagetaka_cache.pkl
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update daily cache files"
+          git push
