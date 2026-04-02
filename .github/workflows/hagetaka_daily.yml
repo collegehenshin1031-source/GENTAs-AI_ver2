@@ -1,0 +1,152 @@
+name: HAGETAKA daily pipeline
+
+on:
+  schedule:
+    # JST 16:30 / 18:30 / 20:30 に取得
+    - cron: '30 7 * * 1-5'
+    - cron: '30 9 * * 1-5'
+    - cron: '30 11 * * 1-5'
+    # JST 翌朝 08:00 に通知
+    - cron: '0 23 * * 0-4'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'fetch_phase1 | fetch_phase2 | fetch_phase3 | notify'
+        required: true
+        default: 'fetch_phase1'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hagetaka-daily-pipeline
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    if: |
+      github.event_name == 'workflow_dispatch' && startsWith(inputs.action, 'fetch_') ||
+      github.event_name == 'schedule' && github.event.schedule != '0 23 * * 0-4'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      TZ: Asia/Tokyo
+      PYTHONUNBUFFERED: '1'
+      TARGET_UNIVERSE_SIZE: '1200'
+      ALLOW_YFINANCE_FALLBACK: '0'
+      FULL_UNIVERSE: '0'
+      KABUPLUS_ID: ${{ secrets.KABUPLUS_ID }}
+      KABUPLUS_PASSWORD: ${{ secrets.KABUPLUS_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Decide phase
+        id: phase
+        shell: bash
+        run: |
+          ACTION="${{ github.event.inputs.action }}"
+          SCHEDULE="${{ github.event.schedule }}"
+          RETRY=0
+          LABEL="phase1"
+
+          if [[ "$ACTION" == "fetch_phase2" || "$SCHEDULE" == "30 9 * * 1-5" ]]; then
+            RETRY=1
+            LABEL="phase2"
+          elif [[ "$ACTION" == "fetch_phase3" || "$SCHEDULE" == "30 11 * * 1-5" ]]; then
+            RETRY=1
+            LABEL="phase3"
+          fi
+
+          echo "retry_missing_only=$RETRY" >> "$GITHUB_OUTPUT"
+          echo "label=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "phase=$LABEL / retry=$RETRY"
+
+      - name: Run fetch pipeline
+        env:
+          RETRY_MISSING_ONLY: ${{ steps.phase.outputs.retry_missing_only }}
+        run: |
+          python fetch_data.py
+
+      - name: Show summary
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('data/ratios.json')
+          if p.exists():
+              obj = json.loads(p.read_text(encoding='utf-8'))
+              print('updated_at=', obj.get('updated_at'))
+              print('run_mode=', obj.get('run_mode'))
+              print('target_universe_size=', obj.get('target_universe_size'))
+              print('notification_candidate_count=', obj.get('notification_candidate_count'))
+              print('missing_universe=', len(obj.get('missing_universe', []) or []))
+          else:
+              print('data/ratios.json not found')
+          PY
+
+      - name: Commit updated data
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ fetch_data.py .github/workflows/hagetaka_daily.yml || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "data update: ${{ steps.phase.outputs.label }}"
+          git push
+
+  notify:
+    if: |
+      github.event_name == 'workflow_dispatch' && inputs.action == 'notify' ||
+      github.event_name == 'schedule' && github.event.schedule == '0 23 * * 0-4'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Tokyo
+      PYTHONUNBUFFERED: '1'
+      GSHEETS_CREDENTIALS: ${{ secrets.GSHEETS_CREDENTIALS }}
+      SPREADSHEET_URL: ${{ secrets.SPREADSHEET_URL }}
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+      NOTIFY_ENABLED: ${{ vars.NOTIFY_ENABLED }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Send notifications
+        shell: bash
+        run: |
+          if [[ "${NOTIFY_ENABLED}" != "1" && "${NOTIFY_ENABLED}" != "true" && "${NOTIFY_ENABLED}" != "True" ]]; then
+            echo "NOTIFY_ENABLED is off. Skip notify."
+            exit 0
+          fi
+          python send_notifications.py
