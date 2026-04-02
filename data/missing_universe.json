@@ -1,17 +1,6 @@
 {
   "updated_at": "2026-04-02 20:33:04",
-  "date": "2026-04-02",
-  "market_cap_range": "300億〜2000億円",
-  "target_universe_size": 982,
-  "notification_candidate_count": 0,
-  "total_count": 0,
-  "all_count": 0,
-  "filtered_count": 0,
-  "level_counts": {},
-  "data": {},
-  "all_data": {},
-  "notification_candidates": {},
-  "missing_universe": [
+  "tickers": [
     "1414.T",
     "1417.T",
     "1419.T",
@@ -994,7 +983,5 @@
     "9987.T",
     "9989.T",
     "9997.T"
-  ],
-  "run_mode": "full_scan",
-  "disclaimer": "本ツールは市場データの可視化を目的とした補助ツールです。銘柄推奨・売買助言ではありません。"
+  ]
 }
